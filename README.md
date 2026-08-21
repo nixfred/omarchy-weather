@@ -179,6 +179,7 @@ reading.
 
 MIT — [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md).
 
-No extra packages, pip, or sudo. Runtime network only: Open-Meteo, wttr.in,
-and the user-chosen radar website (opened in the default browser). Location
-is written through `omarchy-weather-location`.
+No extra packages and no pip. No sudo or pkexec is required. Runtime
+network only: Open-Meteo, wttr.in, and the user-chosen radar website
+(opened in the default browser). Location is written through
+`omarchy-weather-location`.
