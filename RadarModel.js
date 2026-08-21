@@ -24,6 +24,25 @@ var GLYPH = String.fromCodePoint(0xF0437)   // nf-md-radar
 
 var MANIFEST_URL = "https://api.rainviewer.com/public/weather-maps.json"
 var BROWSER_RADAR_HOST = "https://www.rainviewer.com/map.html"
+var IEM_HOST = "https://mesonet.agron.iastate.edu"
+var IEM_N0Q_JSON = IEM_HOST + "/data/gis/images/4326/USCOMP/n0q_0.json"
+var MAX_MANIFEST_BYTES = 65536
+var MAX_ALERT_JSON_BYTES = 1048576
+var TILE_PIXEL_SIZE = 256
+
+function curlGet(url, maxTimeSec, maxBytes) {
+  var cap = parseInt(maxBytes, 10)
+  if (!isFinite(cap) || cap < 1) cap = MAX_ALERT_JSON_BYTES
+  var secs = parseInt(maxTimeSec, 10)
+  if (!isFinite(secs) || secs < 1) secs = 10
+  return ["curl", "-fsS", "--max-time", String(secs), "--max-filesize", String(cap), url]
+}
+
+function rejectOversized(raw, maxBytes) {
+  var cap = parseInt(maxBytes, 10)
+  if (!isFinite(cap) || cap < 1) cap = MAX_MANIFEST_BYTES
+  return String(raw || "").length > cap
+}
 
 // Open today's radar in the default browser at the configured coordinates.
 // Only https://www.rainviewer.com/map.html is ever returned.
@@ -33,6 +52,59 @@ function browserRadarUrl(latitude, longitude) {
   if (!isFinite(lat) || !isFinite(lon)) return BROWSER_RADAR_HOST
   if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return BROWSER_RADAR_HOST
   return BROWSER_RADAR_HOST + "?loc=" + lat.toFixed(4) + "," + lon.toFixed(4) + ",7"
+}
+
+var RADAR_SITES = ["RainViewer", "NOAA", "Windy", "Weather Underground", "Custom"]
+
+function noaaRadarUrl(latitude, longitude) {
+  var lat = parseFloat(latitude)
+  var lon = parseFloat(longitude)
+  if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180)
+    return "https://radar.weather.gov/"
+  return "https://radar.weather.gov/?lat=" + lat.toFixed(4) + "&lon=" + lon.toFixed(4)
+}
+
+function windyRadarUrl(latitude, longitude) {
+  var lat = parseFloat(latitude)
+  var lon = parseFloat(longitude)
+  if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180)
+    return "https://www.windy.com/-Radar-radar"
+  return "https://www.windy.com/" + lat.toFixed(4) + "/" + lon.toFixed(4)
+    + "?radar," + lat.toFixed(4) + "," + lon.toFixed(4) + ",8"
+}
+
+function wundergroundRadarUrl(latitude, longitude) {
+  var lat = parseFloat(latitude)
+  var lon = parseFloat(longitude)
+  if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180)
+    return "https://www.wunderground.com/wundermap"
+  return "https://www.wunderground.com/wundermap?lat=" + lat.toFixed(4)
+    + "&lon=" + lon.toFixed(4) + "&zoom=8&radar=1"
+}
+
+function sanitizeCustomRadarUrl(template, latitude, longitude) {
+  var url = String(template || "").trim()
+  var lat = parseFloat(latitude)
+  var lon = parseFloat(longitude)
+  if (isFinite(lat) && isFinite(lon)) {
+    url = url.split("{lat}").join(lat.toFixed(4))
+    url = url.split("{lon}").join(lon.toFixed(4))
+  }
+  if (url.indexOf("https://") !== 0) return ""
+  if (url.length > 2048 || /\s/.test(url) || url.indexOf("\\") !== -1) return ""
+  var lower = url.toLowerCase()
+  if (lower.indexOf("javascript:") !== -1 || lower.indexOf("data:") !== -1 || lower.indexOf("file:") !== -1) return ""
+  if (hostnameFromHttpsUrl(url) === "") return ""
+  return url
+}
+
+function resolveRadarUrl(site, customTemplate, latitude, longitude) {
+  var name = String(site || "RainViewer")
+  if (name === "NOAA") return noaaRadarUrl(latitude, longitude)
+  if (name === "Windy") return windyRadarUrl(latitude, longitude)
+  if (name === "Weather Underground") return wundergroundRadarUrl(latitude, longitude)
+  if (name === "Custom") return sanitizeCustomRadarUrl(customTemplate, latitude, longitude)
+  return browserRadarUrl(latitude, longitude)
 }
 
 // RainViewer publishes a frame every 10 minutes. Polling faster only re-fetches
@@ -117,6 +189,85 @@ function isSafeRadarPath(path) {
   return true
 }
 
+function isConus(lat, lon) {
+  var la = Number(lat)
+  var lo = Number(lon)
+  return isFinite(la) && isFinite(lo) && la >= 24.4 && la <= 49.5 && lo >= -125.0 && lo <= -66.8
+}
+
+function isSafeIemLayer(layer) {
+  var s = String(layer || "")
+  if (s.indexOf("/") !== -1 || s.indexOf("..") !== -1 || s.indexOf(" ") !== -1 || s.indexOf("\\") !== -1) return false
+  if (/^nexrad-n0q(-m[0-5][05]m)?$/.test(s)) return true
+  if (/^hrrr::REFD-F[0-9]{4}-0$/.test(s)) return true
+  if (/^ridge::USCOMP-N0Q-[0-9]{12}$/.test(s)) return true
+  return false
+}
+
+function iemTileUrl(layer, z, x, y) {
+  if (!isSafeIemLayer(layer)) return ""
+  var zi = parseInt(z, 10)
+  var xi = parseInt(x, 10)
+  var yi = parseInt(y, 10)
+  if (!isFinite(zi) || !isFinite(xi) || !isFinite(yi) || zi < 0 || zi > 12 || xi < 0 || yi < 0) return ""
+  var root = layer.indexOf("ridge::") === 0 ? "/c/tile.py/1.0.0/" : "/cache/tile.py/1.0.0/"
+  return IEM_HOST + root + layer + "/" + zi + "/" + xi + "/" + yi + ".png"
+}
+
+function parseIemN0qClock(raw) {
+  if (rejectOversized(raw, 4096)) return 0
+  var data
+  try { data = JSON.parse(String(raw || "")) } catch (e) { return 0 }
+  var valid = data && data.meta ? data.meta.valid : ""
+  if (typeof valid !== "string" || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/.test(valid)) return 0
+  var ms = Date.parse(valid)
+  if (!isFinite(ms)) return 0
+  var age = Date.now() - ms
+  if (age < -600000 || age > 45 * 60 * 1000) return 0
+  return Math.floor(ms / 1000)
+}
+
+function utcCompactStamp(epochSec) {
+  var t = Math.floor(Number(epochSec) / 300) * 300
+  var d = new Date(t * 1000)
+  function p(n) { return (n < 10 ? "0" : "") + n }
+  return String(d.getUTCFullYear()) + p(d.getUTCMonth() + 1) + p(d.getUTCDate())
+    + p(d.getUTCHours()) + p(d.getUTCMinutes())
+}
+
+function pad4(n) {
+  var s = String(parseInt(n, 10) || 0)
+  while (s.length < 4) s = "0" + s
+  return s.slice(-4)
+}
+
+function buildIemFrames(validEpoch) {
+  var valid = parseInt(validEpoch, 10)
+  if (!isFinite(valid) || valid < 1) return null
+  var past = []
+  for (var m = 120; m >= 0; m -= 10) {
+    var t = valid - m * 60
+    past.push({ time: t, path: "ridge::USCOMP-N0Q-" + utcCompactStamp(t), kind: "past", source: "iem" })
+  }
+  var nowcast = []
+  for (var f = 15; f <= 120; f += 15) {
+    nowcast.push({
+      time: valid + f * 60,
+      path: "hrrr::REFD-F" + pad4(f) + "-0",
+      kind: "nowcast",
+      source: "iem"
+    })
+  }
+  return {
+    host: IEM_HOST,
+    source: "iem",
+    generated: valid,
+    past: past,
+    nowcast: nowcast,
+    frames: past.concat(nowcast)
+  }
+}
+
 function tileUrl(host, framePath, size, zoom, x, y, colorScheme, smooth, snow) {
   if (!isRainViewerHttpsHost(host) || !isSafeRadarPath(framePath)) return ""
   var base = stripUrlQueryAndFragment(host)
@@ -175,12 +326,12 @@ function parseManifest(raw) {
     base = base.slice(0, -1)
   if (!isRainViewerHttpsHost(base)) return null
 
-  var past = normalizeFrames(data.radar.past)
+  var past = tagFrameKind(normalizeFrames(data.radar.past), "past")
   if (past.length === 0) return null
 
   // `nowcast` carries short-range forecast frames. It has been observed empty
   // on the public endpoint, so it is optional throughout.
-  var nowcast = normalizeFrames(data.radar.nowcast)
+  var nowcast = tagFrameKind(normalizeFrames(data.radar.nowcast), "nowcast")
 
   return {
     host: base,
@@ -188,6 +339,46 @@ function parseManifest(raw) {
     past: past,
     nowcast: nowcast,
     frames: past.concat(nowcast)
+  }
+}
+
+function tagFrameKind(list, kind) {
+  var out = []
+  for (var i = 0; i < list.length; i++)
+    out.push({ time: list[i].time, path: list[i].path, kind: kind })
+  return out
+}
+
+// history: all observed frames, now = last.
+// forecast: last observed + future, now = first.
+// split (default): last ~2h observed + next ~2h future so now sits in the middle.
+// Future prefers RainViewer nowcast tiles; if that array is empty (public API
+// dropped nowcast 2026-01-01) it uses Open-Meteo 15-minute precipitation.
+function selectRadarFrames(past, nowcastTiles, precipFrames, mode) {
+  var hist = past || []
+  var fut = (nowcastTiles && nowcastTiles.length) ? nowcastTiles : (precipFrames || [])
+  if (mode === "history" || fut.length === 0) {
+    return { frames: hist, nowIndex: Math.max(0, hist.length - 1) }
+  }
+  if (mode === "forecast") {
+    var now = hist.length ? [hist[hist.length - 1]] : []
+    return { frames: now.concat(fut), nowIndex: 0 }
+  }
+  var nowT = hist.length ? Number(hist[hist.length - 1].time) : Math.floor(Date.now() / 1000)
+  var hist2 = []
+  for (var i = 0; i < hist.length; i++) {
+    if (Number(hist[i].time) >= nowT - 7200) hist2.push(hist[i])
+  }
+  var fut2 = []
+  for (var j = 0; j < fut.length; j++) {
+    var t = Number(fut[j].time)
+    if (t > nowT && t <= nowT + 7200) fut2.push(fut[j])
+  }
+  if (fut2.length === 0) fut2 = fut.slice(0, Math.min(fut.length, 8))
+  if (hist2.length === 0) hist2 = hist
+  return {
+    frames: hist2.concat(fut2),
+    nowIndex: Math.max(0, hist2.length - 1)
   }
 }
 

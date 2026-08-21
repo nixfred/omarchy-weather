@@ -22,8 +22,13 @@ Panel {
   // switchPanelFrom looks the slot up the same way.
   property var hostWidget: null
   property var radar: null
-  property string activeTab: "forecast"
   readonly property var barIdentity: hostWidget || root
+  property string mainView: "forecast"
+  readonly property string radarSite: String(setting("radarSite", "RainViewer"))
+  readonly property string radarCustomUrl: String(setting("radarUrl", ""))
+  readonly property string unitChoice: String(setting("unit", "auto"))
+  readonly property bool use12Hour: String(setting("timeFormat", "24")) === "12"
+  readonly property bool alertsOn: setting("alertsEnabled", false) === true
 
   function open() {
     openedFromHotkey = false
@@ -46,7 +51,7 @@ Panel {
   function close() {
     setCenterHoverRevealSuppressed(false)
     if (root.editingLocation) root.cancelEditingLocation()
-    if (root.peeking) root.clearPeek()
+    root.mainView = "forecast"
     root.controller.hide()
   }
 
@@ -127,8 +132,12 @@ Panel {
   property bool savingLocationQueryStarted: false
   property var locationSuggestions: []
   property int suggestionIndex: 0
+  property bool suggestionPicked: false
+  property string locationPickHint: ""
   property string geocodePendingQuery: ""
   property string geocodeActiveQuery: ""
+  property int clockMinute: 0
+  property string forecastFetchedAt: ""
 
   // Temporary city lookup. Never written to weather.json; the bar pill stays
   // on the saved home location until peek is cleared.
@@ -183,13 +192,21 @@ Panel {
 
   // Sun / moon + UV come from the daily block (today's row).
   readonly property var todayExtra: Model.todayExtras(dailyForecastReport)
-  readonly property string reportSunrise: todayExtra ? todayExtra.sunrise : ""
-  readonly property string reportSunset: todayExtra ? todayExtra.sunset : ""
+  readonly property string reportSunrise: todayExtra ? Model.formatClock(todayExtra.sunrise, use12Hour) : ""
+  readonly property string reportSunset: todayExtra ? Model.formatClock(todayExtra.sunset, use12Hour) : ""
   readonly property var uv: (todayExtra && todayExtra.uv !== null && isFinite(todayExtra.uv)) ? Model.uvInfo(todayExtra.uv) : null
   
   // Forecast + air quality.
-  readonly property var hourly: Model.hourlyForecastToday(dailyForecastReport, Qt.formatDateTime(new Date(), "yyyy-MM-ddThh:mm"))
-  readonly property var daily: Model.dailyForecast(dailyForecastReport, Qt.formatDate(new Date(), "yyyy-MM-dd"), 5)
+  readonly property var hourly: {
+    var _tick = clockMinute
+    var nowIso = Model.nowIsoForReport(dailyForecastReport, Qt.formatDateTime(new Date(), "yyyy-MM-ddThh:mm"))
+    return Model.hourlyForecastToday(dailyForecastReport, nowIso)
+  }
+  readonly property var precipNowcast: {
+    var _tick = clockMinute
+    return Model.minutelyPrecipForecast(dailyForecastReport, 7200)
+  }
+  readonly property var daily: Model.dailyForecast(dailyForecastReport, Qt.formatDate(new Date(), "yyyy-MM-dd"), 10)
   readonly property var airQuality: Model.aqiSummary(airQualityReport)
   readonly property bool hasAirQuality: airQuality !== null
   // Safe alias: bindings evaluate even when the AQI section is hidden, so the
@@ -276,10 +293,12 @@ Panel {
       + "&longitude=" + encodeURIComponent(String(lon))
       + "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,wind_direction_10m,surface_pressure,weather_code,is_day"
       + "&hourly=temperature_2m,precipitation_probability,weather_code,is_day"
+      + "&minutely_15=precipitation,precipitation_probability"
+      + "&forecast_minutely_15=16"
       + "&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_probability_max"
-      + "&forecast_days=8"
+      + "&forecast_days=10"
       + "&timezone=auto"
-    dailyForecastProc.command = ["curl", "-fsS", "--max-time", "5", url]
+    dailyForecastProc.command = Model.curlGet(url, 5, Model.MAX_JSON_BYTES)
     dailyForecastProc.running = true
 
     if (root.showAirQuality) refreshAirQuality(lat, lon)
@@ -292,7 +311,7 @@ Panel {
       + "&longitude=" + encodeURIComponent(String(lon))
       + "&current=us_aqi,pm10,pm2_5,nitrogen_dioxide,ozone"
       + "&timezone=auto"
-    airQualityProc.command = ["curl", "-fsS", "--max-time", "5", url]
+    airQualityProc.command = Model.curlGet(url, 5, Model.MAX_JSON_BYTES)
     airQualityProc.running = true
   }
 
@@ -310,6 +329,8 @@ Panel {
     savingLocationQueryStarted = false
     locationSuggestions = []
     suggestionIndex = 0
+    suggestionPicked = false
+    locationPickHint = ""
     Qt.callLater(function() {
       locationField.text = root.configuredLocation
       locationField.selectAll()
@@ -324,6 +345,8 @@ Panel {
     savingLocationQueryStarted = false
     locationSuggestions = []
     suggestionIndex = 0
+    suggestionPicked = false
+    locationPickHint = ""
     Qt.callLater(function() {
       locationField.text = ""
       locationField.forceActiveFocus()
@@ -336,6 +359,8 @@ Panel {
     savingLocation = false
     savingLocationQueryStarted = false
     locationSuggestions = []
+    suggestionPicked = false
+    locationPickHint = ""
     geocodeDebounce.stop()
     Qt.callLater(function() { if (keyCatcher) keyCatcher.forceActiveFocus() })
   }
@@ -354,13 +379,20 @@ Panel {
   }
 
   function applyPeek(location) {
-    if (!location || location.name === "") {
+    if (!location || location.empty === true || location.name === "") {
       cancelEditingLocation()
+      return
+    }
+    if (location.needsPick === true) {
+      locationPickHint = "Pick a city from the list"
       return
     }
     var lat = parseFloat(location.latitude)
     var lon = parseFloat(location.longitude)
-    if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return
+    if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+      locationPickHint = "Pick a city from the list"
+      return
+    }
     peekLocation = { name: String(location.name || ""), latitude: lat, longitude: lon }
     report = null
     dailyForecastReport = null
@@ -379,17 +411,28 @@ Panel {
   }
 
   function commitLocation() {
-    var location = Model.locationCommit(locationField.text, locationSuggestions, suggestionIndex)
+    var location = Model.locationCommit(locationField.text, locationSuggestions, suggestionIndex, suggestionPicked)
+    if (location.empty === true) {
+      cancelEditingLocation()
+      return
+    }
     if (locationEditMode === "peek") {
       applyPeek(location)
       return
     }
-    if (location.name === "") {
-      clearLocation()
+    if (location.needsPick === true) {
+      locationPickHint = "Pick a city from the list"
+      return
+    }
+    var lat = parseFloat(location.latitude)
+    var lon = parseFloat(location.longitude)
+    if (!isFinite(lat) || !isFinite(lon)) {
+      locationPickHint = "Pick a city from the list"
       return
     }
     savingLocation = true
     savingLocationQueryStarted = false
+    locationPickHint = ""
     configuredLocationState = {
       name: location.name,
       latitude: location.latitude,
@@ -438,9 +481,27 @@ Panel {
   }
 
   function notifyCurrent() {
-    if (statusNotifyProc.running) statusNotifyProc.running = false
-    statusNotifyProc.command = ["omarchy-weather-status"]
-    statusNotifyProc.running = true
+    var loc = String(root.reportLocation || "").replace(/\s+/g, " ").trim()
+    var temp = root.reportTempNum !== "" ? (root.reportTempNum + root.tempUnit) : ""
+    var headline = loc !== "" ? loc : "Weather"
+    var description = temp
+    if (root.reportWind) description += (description ? " · " : "") + "Wind " + root.reportWind
+    if (root.reportPrecip) description += (description ? " · " : "") + "Precip " + root.reportPrecip
+    if (!description) return
+    if (headline.charAt(0) === "-" || description.charAt(0) === "-") return
+    Quickshell.execDetached(["omarchy-notification-send", "-u", "low", headline, description])
+  }
+
+  readonly property bool stockWeatherOn: {
+    var registry = root.bar && root.bar.shell ? root.bar.shell.pluginRegistry : null
+    var _rev = registry && registry.registryRevision
+    return !!(registry && typeof registry.inBar === "function" && registry.inBar("omarchy.weather"))
+  }
+
+  function hideStockWeather() {
+    var registry = root.bar && root.bar.shell ? root.bar.shell.pluginRegistry : null
+    if (registry && typeof registry.setEnabled === "function")
+      registry.setEnabled("omarchy.weather", false)
   }
 
   // Debounced geocoding. Only one curl runs at a time; if the query moved on
@@ -457,8 +518,9 @@ Panel {
 
   function startGeocode() {
     geocodeActiveQuery = geocodePendingQuery
-    geocodeProc.command = ["curl", "-fsS", "--max-time", "5",
-      "https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(geocodeActiveQuery) + "&count=5&language=en&format=json"]
+    geocodeProc.command = Model.curlGet(
+      "https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(geocodeActiveQuery) + "&count=5&language=en&format=json",
+      5, Model.MAX_JSON_BYTES)
     geocodeProc.running = true
   }
 
@@ -482,6 +544,29 @@ Panel {
     return Model.iconForOpenMeteoCode(code, night)
   }
 
+  function persistSetting(key, value) {
+    if (!root.bar || !root.bar.shell || typeof root.bar.shell.updateEntryInline !== "function") return
+    var entry = { id: root.moduleName }
+    var current = root.settings || {}
+    for (var existing in current) if (existing !== "id") entry[existing] = current[existing]
+    entry[key] = value
+    root.bar.shell.updateEntryInline(root.moduleName, entry)
+  }
+
+  function setRadarSite(name) {
+    root.persistSetting("radarSite", String(name || "RainViewer"))
+  }
+
+  function showSettings() {
+    if (root.editingLocation) root.cancelEditingLocation()
+    root.mainView = "settings"
+  }
+
+  function showForecast() {
+    root.mainView = "forecast"
+    if (weatherScroll) weatherScroll.contentY = 0
+  }
+
   function openRadarInBrowser() {
     var lat = root.peeking ? parseFloat(String(root.peekLocation.latitude)) : parseFloat(String(root.configuredLocationState.latitude))
     var lon = root.peeking ? parseFloat(String(root.peekLocation.longitude)) : parseFloat(String(root.configuredLocationState.longitude))
@@ -489,21 +574,9 @@ Panel {
       lat = root.lastLat
       lon = root.lastLon
     }
-    var url = RadarModel.browserRadarUrl(lat, lon)
-    if (url.indexOf("https://www.rainviewer.com/map.html") !== 0) return
+    var url = RadarModel.resolveRadarUrl(root.radarSite, root.radarCustomUrl, lat, lon)
+    if (!url || url.indexOf("https://") !== 0) return
     Quickshell.execDetached(["omarchy-launch-browser", url])
-  }
-
-  Process {
-    id: statusNotifyProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var msg = String(text || "").trim()
-        if (!msg || msg.charAt(0) === "-") return
-        Quickshell.execDetached(["omarchy-notification-send", "-u", "low", msg])
-      }
-    }
   }
 
   Process {
@@ -511,12 +584,17 @@ Panel {
     command: {
       var q = String(root.locationQuery || "")
       if (q.indexOf("://") !== -1 || q.indexOf("/") !== -1) q = ""
-      return ["curl", "-fsS", "--max-time", "10", "https://wttr.in/" + q + "?format=j1"]
+      return Model.curlGet("https://wttr.in/" + q + "?format=j1", 10, Model.MAX_JSON_BYTES)
     }
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        var raw = String(text || "").trim()
+        var raw = String(text || "")
+        if (Model.rejectOversized(raw, Model.MAX_JSON_BYTES)) {
+          root.scheduleForecastRetry()
+          return
+        }
+        raw = raw.trim()
         if (!raw) {
           root.scheduleForecastRetry()
           return
@@ -587,7 +665,12 @@ Panel {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        var raw = String(text || "").trim()
+        var raw = String(text || "")
+        if (Model.rejectOversized(raw, Model.MAX_JSON_BYTES)) {
+          root.scheduleDailyForecastRetry()
+          return
+        }
+        raw = raw.trim()
         if (!raw) {
           root.scheduleDailyForecastRetry()
           return
@@ -596,6 +679,7 @@ Panel {
           var parsed = JSON.parse(raw)
           var parsedCurrent = Model.openMeteoCurrentCondition(parsed)
           root.dailyForecastReport = parsed
+          root.forecastFetchedAt = Qt.formatTime(new Date(), root.use12Hour ? "h:mm AP" : "HH:mm")
           if (!root.peeking) {
             root.label = Model.currentIcon(parsedCurrent, root.label)
             root.homeLabel = root.label
@@ -615,7 +699,12 @@ Panel {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        var raw = String(text || "").trim()
+        var raw = String(text || "")
+        if (Model.rejectOversized(raw, Model.MAX_JSON_BYTES)) {
+          root.scheduleAirQualityRetry()
+          return
+        }
+        raw = raw.trim()
         if (!raw) {
           root.scheduleAirQualityRetry()
           return
@@ -635,8 +724,13 @@ Panel {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
+        if (Model.rejectOversized(text, Model.MAX_JSON_BYTES)) {
+          root.locationSuggestions = []
+          return
+        }
         root.locationSuggestions = root.editingLocation ? Model.parseGeocodingResults(text) : []
         root.suggestionIndex = 0
+        root.suggestionPicked = false
         if (root.geocodePendingQuery !== root.geocodeActiveQuery) Qt.callLater(root.startGeocode)
       }
     }
@@ -670,11 +764,13 @@ Panel {
 
   Process {
     id: locationProc
-    command: ["curl", "-fsS", "--max-time", "4", "https://wttr.in/?format=%l"]
+    command: Model.curlGet("https://wttr.in/?format=%l", 4, Model.MAX_PLACE_NAME_BYTES)
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        var raw = String(text || "").trim()
+        var raw = String(text || "")
+        if (Model.rejectOversized(raw, Model.MAX_PLACE_NAME_BYTES)) return
+        raw = raw.trim()
         if (!raw) return
         root.wttrLocation = raw.split(",")[0]
       }
@@ -690,6 +786,14 @@ Panel {
     onTriggered: root.refresh()
   }
 
+  Timer {
+    interval: 30000
+    running: true
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: root.clockMinute = Math.floor(Date.now() / 60000)
+  }
+
   IpcHandler {
     target: root.ipcTarget
 
@@ -699,6 +803,8 @@ Panel {
     function hide(): void { root.close() }
     function toggle(): void { root.toggle() }
     function edit(): void { root.openFromHotkey(); root.startEditingLocation() }
+    function settings(): void { root.mainView = "settings" }
+    function forecast(): void { root.mainView = "forecast" }
   }
 
 KeyboardPanel {
@@ -709,8 +815,8 @@ KeyboardPanel {
     open: root.opened
     centerOnBar: true
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(root.activeTab === "radar" ? 560 : 540))
-    contentHeight: panel.fittedContentHeight(weatherColumn.implicitHeight)
+    contentWidth: panel.fittedContentWidth(Style.space(540))
+    contentHeight: panel.fittedContentHeight(Style.spacing.controlHeight + Style.space(12) + (root.mainView === "settings" ? settingsColumn.implicitHeight : weatherColumn.implicitHeight))
 
     // No custom background layer: the KeyboardPanel's BorderSurface paints the
     // theme popup surface (Color.popups.background), so the panel follows the
@@ -720,24 +826,82 @@ KeyboardPanel {
       id: keyCatcher
       anchors.fill: parent
       blocked: root.editingLocation
-      onReturnRequested: {
-        if (root.activeTab === "radar") radarPane.playing = !radarPane.playing
-        else root.startEditingLocation()
+      onReturnRequested: root.startEditingLocation()
+      onCloseRequested: {
+        if (root.mainView === "settings") root.showForecast()
+        else root.close()
       }
-      onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
-      Keys.onPressed: function(event) {
-        if (root.activeTab !== "radar") return
-        if (event.key === Qt.Key_Left) { radarPane.stepFrame(-1); event.accepted = true }
-        else if (event.key === Qt.Key_Right) { radarPane.stepFrame(1); event.accepted = true }
-        else if (event.key === Qt.Key_Plus || event.key === Qt.Key_Equal) { radarPane.zoomBy(1); event.accepted = true }
-        else if (event.key === Qt.Key_Minus) { radarPane.zoomBy(-1); event.accepted = true }
-        else if (event.key === Qt.Key_Home) { radarPane.panned = false; radarPane.recenter(); event.accepted = true }
+
+      Item {
+        id: chromeBar
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: Style.spacing.controlHeight
+        z: 50
+
+        Button {
+          visible: root.mainView === "forecast"
+          anchors.left: parent.left
+          anchors.verticalCenter: parent.verticalCenter
+          text: "Open radar"
+          fontFamily: root.bar.fontFamily
+          foreground: root.bar.foreground
+          onClicked: root.openRadarInBrowser()
+        }
+
+        Rectangle {
+          visible: root.mainView === "settings"
+          anchors.left: parent.left
+          anchors.verticalCenter: parent.verticalCenter
+          width: doneLabel.implicitWidth + Style.space(24)
+          height: parent.height
+          radius: Math.min(4, Style.cornerRadius)
+          color: Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.12)
+
+          Text {
+            id: doneLabel
+            textFormat: Text.PlainText
+            anchors.centerIn: parent
+            text: "Done"
+            color: root.bar.foreground
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.body
+            font.bold: true
+          }
+
+          MouseArea {
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onPressed: function(mouse) {
+              mouse.accepted = true
+              root.mainView = "forecast"
+            }
+          }
+        }
+
+        Button {
+          visible: root.mainView === "forecast"
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          text: "Settings"
+          fontFamily: root.bar.fontFamily
+          foreground: root.bar.foreground
+          onClicked: root.showSettings()
+        }
       }
 
       Flickable {
         id: weatherScroll
-        anchors.fill: parent
+        visible: root.mainView === "forecast"
+        enabled: root.mainView === "forecast"
+        anchors.top: chromeBar.bottom
+        anchors.topMargin: Style.space(12)
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
         contentWidth: width
         contentHeight: weatherColumn.implicitHeight
         clip: true
@@ -749,9 +913,37 @@ KeyboardPanel {
           width: weatherScroll.width
           spacing: Style.space(18)
 
+          Row {
+            visible: root.stockWeatherOn
+            width: parent.width
+            spacing: Style.space(8)
+
+            Text {
+              id: stockNotice
+              width: parent.width - hideStockBtn.implicitWidth - Style.space(8)
+              textFormat: Text.PlainText
+              wrapMode: Text.WordWrap
+              text: "Stock weather is still in the bar."
+              color: root.dimText
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              anchors.verticalCenter: parent.verticalCenter
+            }
+
+            Button {
+              id: hideStockBtn
+              text: "Hide stock pill"
+              fontFamily: root.bar.fontFamily
+              foreground: root.bar.foreground
+              tooltipText: "Disable omarchy.weather so only this pill remains"
+              onClicked: root.hideStockWeather()
+            }
+          }
+
           // ---- Hero: big glyph + temp on the left; location + FEELS/WIND/PRECIP
           //      stats on the right, matching the built-in weather plugin.
           Item {
+            visible: root.mainView === "forecast"
             width: parent.width
             height: Math.max(heroLeft.height, heroRight.height)
 
@@ -815,7 +1007,12 @@ KeyboardPanel {
                   implicitWidth: pinRow.implicitWidth
                   implicitHeight: pinRow.implicitHeight
                   TapHandler { onTapped: root.startEditingLocation() }
-                  HoverHandler { cursorShape: Qt.PointingHandCursor }
+                  HoverHandler { id: pinHover; cursorShape: Qt.PointingHandCursor }
+                  PanelToolTip {
+                    visible: pinHover.hovered
+                    text: root.peeking ? "Search another city" : "Change saved home location"
+                    fontFamily: root.bar.fontFamily
+                  }
 
                   Row {
                     id: pinRow
@@ -850,7 +1047,12 @@ KeyboardPanel {
                   font.pixelSize: Style.font.body
                   anchors.verticalCenter: parent.verticalCenter
                   TapHandler { onTapped: root.startPeekSearch() }
-                  HoverHandler { cursorShape: Qt.PointingHandCursor }
+                  HoverHandler { id: peekHover; cursorShape: Qt.PointingHandCursor }
+                  PanelToolTip {
+                    visible: peekHover.hovered
+                    text: "Peek at another city without saving"
+                    fontFamily: root.bar.fontFamily
+                  }
                 }
               }
 
@@ -862,7 +1064,12 @@ KeyboardPanel {
                 font.family: root.bar.fontFamily
                 font.pixelSize: Style.font.bodySmall
                 TapHandler { onTapped: root.clearPeek() }
-                HoverHandler { cursorShape: Qt.PointingHandCursor }
+                HoverHandler { id: backHover; cursorShape: Qt.PointingHandCursor }
+                PanelToolTip {
+                  visible: backHover.hovered
+                  text: "Return to saved home"
+                  fontFamily: root.bar.fontFamily
+                }
               }
 
               Row {
@@ -877,17 +1084,28 @@ KeyboardPanel {
                   foreground: root.bar.foreground
                   font.family: root.bar.fontFamily
 
-                  onTextChanged: if (root.editingLocation && !root.savingLocation) geocodeDebounce.restart()
+                  onTextChanged: {
+                    if (!root.editingLocation || root.savingLocation) return
+                    root.suggestionPicked = false
+                    root.locationPickHint = ""
+                    geocodeDebounce.restart()
+                  }
 
                   Keys.onPressed: function(event) {
                     if (event.key === Qt.Key_Escape) {
                       root.cancelEditingLocation()
                       event.accepted = true
                     } else if (event.key === Qt.Key_Down) {
-                      if (root.suggestionIndex < root.locationSuggestions.length - 1) root.suggestionIndex++
+                      if (root.suggestionIndex < root.locationSuggestions.length - 1) {
+                        root.suggestionIndex++
+                        root.suggestionPicked = true
+                      }
                       event.accepted = true
                     } else if (event.key === Qt.Key_Up) {
-                      if (root.suggestionIndex > 0) root.suggestionIndex--
+                      if (root.suggestionIndex > 0) {
+                        root.suggestionIndex--
+                        root.suggestionPicked = true
+                      }
                       event.accepted = true
                     } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
                       root.commitLocation()
@@ -931,6 +1149,15 @@ KeyboardPanel {
                     }
                   }
                 }
+              }
+
+              Text {
+                textFormat: Text.PlainText
+                visible: root.editingLocation && root.locationPickHint !== ""
+                text: root.locationPickHint
+                color: root.bar.foreground
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.bodySmall
               }
 
               Row {
@@ -1001,7 +1228,7 @@ KeyboardPanel {
 
           // ---- Geocoding suggestions while the location is being edited.
           Column {
-            visible: root.editingLocation && !root.savingLocation && root.locationSuggestions.length > 0
+            visible: root.mainView === "forecast" && root.editingLocation && !root.savingLocation && root.locationSuggestions.length > 0
             width: parent.width
             spacing: 0
 
@@ -1054,7 +1281,7 @@ KeyboardPanel {
 
           Text {
             textFormat: Text.PlainText
-            visible: !root.current
+            visible: root.mainView === "forecast" && !root.current
             text: root.weatherUnavailable ? "Couldn't reach the weather service — will retry." : "Fetching forecast…"
             color: root.dimText
             font.family: root.bar.fontFamily
@@ -1062,70 +1289,15 @@ KeyboardPanel {
             font.italic: true
           }
 
-          Item {
-            width: parent.width
-            height: Style.spacing.controlHeight
-
-            Row {
-              anchors.left: parent.left
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(6)
-
-              Repeater {
-                model: [
-                  { id: "forecast", label: "Forecast" },
-                  { id: "radar", label: "Radar" }
-                ]
-
-                Rectangle {
-                  required property var modelData
-                  width: tabLabel.implicitWidth + Style.space(16)
-                  height: Style.space(28)
-                  radius: Math.min(4, Style.cornerRadius)
-                  color: root.activeTab === modelData.id
-                    ? Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.12)
-                    : "transparent"
-
-                  Text {
-                    textFormat: Text.PlainText
-                    id: tabLabel
-                    anchors.centerIn: parent
-                    text: modelData.label
-                    color: root.activeTab === modelData.id ? root.bar.foreground : root.dimText
-                    font.family: root.bar.fontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    font.bold: root.activeTab === modelData.id
-                  }
-
-                  MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.activeTab = modelData.id
-                  }
-                }
-              }
-            }
-
-            Button {
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              text: "Open radar"
-              fontFamily: root.bar.fontFamily
-              foreground: root.bar.foreground
-              tooltipText: "Open today's radar in your default browser"
-              onClicked: root.openRadarInBrowser()
-            }
-          }
-
           // ---- HOURLY ----------------------------------------------------------
           PanelSeparator {
             strength: 0.2
-            visible: root.activeTab === "forecast" && root.showHourly && root.hourly.length > 0
+            visible: root.mainView === "forecast" && root.showHourly && root.hourly.length > 0
             foreground: root.bar.foreground
           }
 
           Column {
-            visible: root.activeTab === "forecast" && root.showHourly && root.hourly.length > 0
+            visible: root.mainView === "forecast" && root.showHourly && root.hourly.length > 0
             width: parent.width
             spacing: Style.space(8)
 
@@ -1158,7 +1330,7 @@ KeyboardPanel {
                 Text {
                   textFormat: Text.PlainText
                   anchors.verticalCenter: parent.verticalCenter
-                  text: "Day MAX " + root.hourlyMax
+                  text: "Day MAX " + root.hourlyMax + (root.forecastFetchedAt !== "" ? " · as of " + root.forecastFetchedAt : "")
                   color: root.dimText
                   font.family: root.bar.fontFamily
                   font.pixelSize: Style.font.caption
@@ -1178,6 +1350,8 @@ KeyboardPanel {
               Row {
                 id: hourRow
                 spacing: Style.space(4)
+
+                Item { width: Style.space(2); height: 1 }
 
                 Repeater {
                   id: hourRepeater
@@ -1205,7 +1379,7 @@ KeyboardPanel {
                       Text {
                         textFormat: Text.PlainText
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: index === 0 ? "NOW" : modelData.time
+                        text: index === 0 ? "NOW" : Model.formatClock(modelData.time, root.use12Hour, true)
                         color: index === 0 ? root.bar.foreground : root.dimText
                         font.family: root.bar.fontFamily
                         font.pixelSize: Style.font.caption
@@ -1242,6 +1416,8 @@ KeyboardPanel {
                     }
                   }
                 }
+
+                Item { width: Style.space(12); height: 1 }
               }
             }
           }
@@ -1249,7 +1425,7 @@ KeyboardPanel {
           // ---- METRICS ----------------------------------------------------
 
           Column {
-            visible: root.activeTab === "forecast" && root.showMetrics && !!root.openMeteoCurrent
+            visible: root.mainView === "forecast" && root.showMetrics && !!root.openMeteoCurrent
             width: parent.width
             spacing: Style.space(8)
 
@@ -1466,15 +1642,15 @@ KeyboardPanel {
             }
           }
 
-          // ---- 7-DAY FORECAST ---------------------------------------------
+          // ---- 10-DAY FORECAST --------------------------------------------
 
           Column {
-            visible: root.activeTab === "forecast" && root.showForecast && root.daily.length > 0
+            visible: root.mainView === "forecast" && root.showForecast && root.daily.length > 0
             width: parent.width
             spacing: Style.space(8)
 
             PanelSectionHeader {
-              text: "5-DAY FORECAST"
+              text: "10-DAY FORECAST"
               foreground: root.bar.foreground
               fontFamily: root.bar.fontFamily
             }
@@ -1489,57 +1665,59 @@ KeyboardPanel {
                 Rectangle {
                   required property var modelData
                   Layout.fillWidth: true
+                  Layout.minimumWidth: 0
+                  clip: true
                   height: root.metricCellHeight + Style.space(8)
                   radius: Math.min(4, Style.cornerRadius)
                   color: modelData.isToday ? Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.1) : Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.05)
 
                   Column {
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.leftMargin: Style.space(6)
-                    anchors.rightMargin: Style.space(6)
+                    width: parent.width
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: Style.space(3)
+                    spacing: Style.space(2)
 
                     Text {
                       textFormat: Text.PlainText
-                      anchors.horizontalCenter: parent.horizontalCenter
+                      width: parent.width
+                      horizontalAlignment: Text.AlignHCenter
+                      elide: Text.ElideRight
                       text: root.dayAbbr(modelData.date).toUpperCase()
                       color: modelData.isToday ? root.bar.foreground : root.dimText
                       font.family: root.bar.fontFamily
                       font.pixelSize: Style.font.caption
                       font.bold: modelData.isToday
-                      font.letterSpacing: root.capsLetterSpacing
                     }
 
                     Text {
                       textFormat: Text.PlainText
-                      anchors.horizontalCenter: parent.horizontalCenter
+                      width: parent.width
+                      horizontalAlignment: Text.AlignHCenter
                       text: root.iconForOpenMeteoCode(modelData.code, false)
                       color: root.bar.foreground
                       font.family: root.bar.fontFamily
-                      font.pixelSize: Style.font.title
+                      font.pixelSize: Style.font.body
                     }
 
-                    Row {
-                      anchors.horizontalCenter: parent.horizontalCenter
-                      spacing: Style.space(4)
+                    Text {
+                      textFormat: Text.PlainText
+                      width: parent.width
+                      horizontalAlignment: Text.AlignHCenter
+                      elide: Text.ElideRight
+                      text: root.bareTempForDay(modelData, "max")
+                      color: root.bar.foreground
+                      font.family: root.bar.fontFamily
+                      font.pixelSize: Style.font.caption
+                    }
 
-                      Text {
-                        textFormat: Text.PlainText
-                        text: root.bareTempForDay(modelData, "max")
-                        color: root.bar.foreground
-                        font.family: root.bar.fontFamily
-                        font.pixelSize: Style.font.body
-                      }
-
-                      Text {
-                        textFormat: Text.PlainText
-                        text: root.bareTempForDay(modelData, "min")
-                        color: root.dimText
-                        font.family: root.bar.fontFamily
-                        font.pixelSize: Style.font.body
-                      }
+                    Text {
+                      textFormat: Text.PlainText
+                      width: parent.width
+                      horizontalAlignment: Text.AlignHCenter
+                      elide: Text.ElideRight
+                      text: root.bareTempForDay(modelData, "min")
+                      color: root.dimText
+                      font.family: root.bar.fontFamily
+                      font.pixelSize: Style.font.caption
                     }
                   }
                 }
@@ -1547,21 +1725,236 @@ KeyboardPanel {
             }
           }
 
-          RadarPane {
-            id: radarPane
-            visible: root.activeTab === "radar"
-            width: parent.width
-            bar: root.bar
-            radar: root.radar
-            settings: root.settings
-            moduleName: root.moduleName
-            active: root.opened && root.activeTab === "radar"
-            peekLatitude: root.peeking ? Number(root.peekLocation.latitude) : Number.NaN
-            peekLongitude: root.peeking ? Number(root.peekLocation.longitude) : Number.NaN
-            peekName: root.peekName
-          }
 
         }
+      }
+
+      Flickable {
+        id: settingsScroll
+        visible: root.mainView === "settings"
+        enabled: root.mainView === "settings"
+        anchors.top: chromeBar.bottom
+        anchors.topMargin: Style.space(12)
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        contentWidth: width
+        contentHeight: settingsColumn.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        interactive: contentHeight > height
+
+          Column {
+            id: settingsColumn
+            width: parent.width
+            spacing: Style.space(16)
+
+            PanelSectionHeader {
+              text: "RADAR WEBSITE"
+              foreground: root.bar.foreground
+              fontFamily: root.bar.fontFamily
+            }
+
+            Flow {
+              width: parent.width
+              spacing: Style.space(6)
+
+              Repeater {
+                model: RadarModel.RADAR_SITES
+
+                Rectangle {
+                  required property string modelData
+                  width: siteLabel.implicitWidth + Style.space(16)
+                  height: Style.space(28)
+                  radius: Math.min(4, Style.cornerRadius)
+                  color: root.radarSite === modelData
+                    ? Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.12)
+                    : "transparent"
+
+                  Text {
+                    textFormat: Text.PlainText
+                    id: siteLabel
+                    anchors.centerIn: parent
+                    text: modelData
+                    color: root.radarSite === modelData ? root.bar.foreground : root.dimText
+                    font.family: root.bar.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    font.bold: root.radarSite === modelData
+                  }
+
+                  MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.setRadarSite(modelData)
+                  }
+                }
+              }
+            }
+
+            Row {
+              visible: root.radarSite === "Custom"
+              width: parent.width
+              spacing: Style.space(8)
+
+              TextField {
+                id: customRadarField
+                width: parent.width - saveRadarBtn.implicitWidth - Style.space(8)
+                placeholderText: "https://…  {lat} {lon} optional"
+                text: root.radarCustomUrl
+                foreground: root.bar.foreground
+                font.family: root.bar.fontFamily
+                Keys.onReturnPressed: root.persistSetting("radarUrl", customRadarField.text)
+                Keys.onEnterPressed: root.persistSetting("radarUrl", customRadarField.text)
+              }
+
+              Button {
+                id: saveRadarBtn
+                text: "Save"
+                fontFamily: root.bar.fontFamily
+                foreground: root.bar.foreground
+                tooltipText: "Save this https radar URL"
+                onClicked: root.persistSetting("radarUrl", customRadarField.text)
+              }
+            }
+
+            Text {
+              textFormat: Text.PlainText
+              width: parent.width
+              wrapMode: Text.WordWrap
+              text: "Open radar on the forecast uses this site. Custom URLs must be https."
+              color: root.dimText
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+
+            PanelSectionHeader {
+              text: "CLOCK"
+              foreground: root.bar.foreground
+              fontFamily: root.bar.fontFamily
+            }
+
+            Row {
+              spacing: Style.space(6)
+
+              Repeater {
+                model: [
+                  { id: "12", label: "12-hour" },
+                  { id: "24", label: "24-hour" }
+                ]
+
+                Rectangle {
+                  required property var modelData
+                  width: clockLabel.implicitWidth + Style.space(16)
+                  height: Style.space(28)
+                  radius: Math.min(4, Style.cornerRadius)
+                  color: String(setting("timeFormat", "24")) === modelData.id
+                    ? Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.12)
+                    : "transparent"
+
+                  Text {
+                    textFormat: Text.PlainText
+                    id: clockLabel
+                    anchors.centerIn: parent
+                    text: modelData.label
+                    color: String(setting("timeFormat", "24")) === modelData.id ? root.bar.foreground : root.dimText
+                    font.family: root.bar.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    font.bold: String(setting("timeFormat", "24")) === modelData.id
+                  }
+
+                  MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.persistSetting("timeFormat", modelData.id)
+                  }
+                }
+              }
+            }
+
+            PanelSectionHeader {
+              text: "UNITS"
+              foreground: root.bar.foreground
+              fontFamily: root.bar.fontFamily
+            }
+
+            Row {
+              spacing: Style.space(6)
+
+              Repeater {
+                model: [
+                  { id: "auto", label: "Auto" },
+                  { id: "metric", label: "°C" },
+                  { id: "imperial", label: "°F" }
+                ]
+
+                Rectangle {
+                  required property var modelData
+                  width: unitLabel.implicitWidth + Style.space(16)
+                  height: Style.space(28)
+                  radius: Math.min(4, Style.cornerRadius)
+                  color: root.unitChoice === modelData.id
+                    ? Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.12)
+                    : "transparent"
+
+                  Text {
+                    textFormat: Text.PlainText
+                    id: unitLabel
+                    anchors.centerIn: parent
+                    text: modelData.label
+                    color: root.unitChoice === modelData.id ? root.bar.foreground : root.dimText
+                    font.family: root.bar.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    font.bold: root.unitChoice === modelData.id
+                  }
+
+                  MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.persistSetting("unit", modelData.id)
+                  }
+                }
+              }
+            }
+
+            PanelSectionHeader {
+              text: "ALERTS"
+              foreground: root.bar.foreground
+              fontFamily: root.bar.fontFamily
+            }
+
+            Item {
+              width: parent.width
+              height: Style.spacing.controlHeight
+
+              Text {
+                textFormat: Text.PlainText
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                text: "Storm alerts"
+                color: root.bar.foreground
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.body
+              }
+
+              ToggleSwitch {
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                checked: root.alertsOn
+                foreground: root.bar.foreground
+                onToggled: root.persistSetting("alertsEnabled", !root.alertsOn)
+              }
+            }
+
+            Text {
+              textFormat: Text.PlainText
+              width: parent.width
+              wrapMode: Text.WordWrap
+              text: "Home location is the pin on the forecast. Threshold and radius stay in the widget form."
+              color: root.dimText
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+          }
       }
     }
   }

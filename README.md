@@ -1,8 +1,8 @@
 # Weather
 
 A single Omarchy bar pill that **replaces** the built-in `omarchy.weather`
-widget. Click it for today's hourly forecast, a five-day outlook, and a live
-radar map. **Open radar** launches today's radar in your default browser.
+widget. Click it for today's hourly forecast and a ten-day outlook.
+**Open radar** launches a saved radar website in your default browser.
 
 No API key. Location is the same file Omarchy already uses.
 
@@ -15,11 +15,11 @@ Omarchy's stock weather pill shows current conditions and a short outlook.
 richer forecast panel. [Weather Radar](https://github.com/eduardodallecort/omarchy-weather-radar)
 is a separate radar pill.
 
-This plugin is those two ideas in **one slot**: the stock header goes away,
-forecast and radar share a panel, and you can peek at another city without
-changing home. If you already run Weathering *and* Weather Radar side by
-side, you do not need this. If you want one widget that stands in for
-`omarchy.weather`, this is that.
+This plugin is the stock header replacement: a richer forecast, peek at
+another city without changing home, and **Open radar** to a website you
+choose (RainViewer, NOAA, Windy, Weather Underground, or a custom https
+URL). There is no in-panel radar map — public tile APIs no longer offer
+one consistent past+future product without a paid key.
 
 It is MIT-licensed work adapted from Weathering and Weather Radar plus the
 stock weather contract. See [NOTICE.md](NOTICE.md).
@@ -37,10 +37,10 @@ the panel is peeking at another city.
 |-------|--------|
 | Left-click | Open or close the panel |
 | Middle-click | Refresh the forecast |
-| Right-click | Notification with current conditions (`omarchy-weather-status`) |
+| Right-click | Notification from this panel's current reading |
 | Escape (panel open) | Close |
 
-### Forecast tab
+### Forecast
 
 Current temperature and condition, feels-like, wind, and precipitation
 chance. Below that:
@@ -50,48 +50,43 @@ chance. Below that:
 - **Metrics** — wind (speed and direction), humidity, pressure, UV, air
   quality (US AQI, PM2.5 / PM10), sunrise and sunset. Each block can be
   hidden in settings.
-- **Five-day** — today plus the next four days, high / low and condition.
+- **Ten-day** — today plus the next nine days, high / low and condition.
 
 Units follow `auto` (locale and country), `metric`, or `imperial`.
 
-### Radar tab
-
-Live precipitation from [RainViewer](https://www.rainviewer.com) over a
-CARTO / OpenStreetMap basemap, centred on the city you are viewing (home or
-peek).
-
-- Drag to pan, wheel to zoom, Home to recetre
-- Play / scrub the last two hours of frames
-- The current overlay stays on screen until the next timestamp's tiles have
-  loaded, then the two crossfade (no empty black flash)
-- Radar tiles are fetched only while this tab is open
-
-This is **precipitation**, not cloud. An overcast dry sky is an empty map.
-
 ### Open radar
 
-On both tabs, **Open radar** opens RainViewer in your default browser
-(`omarchy-launch-browser`), centred on the same coordinates. The URL is
-always `https://www.rainviewer.com/map.html…`.
+**Open radar** on the forecast launches the saved site in your default
+browser. Choose the site under **Settings** (RainViewer, NOAA, Windy,
+Weather Underground, or Custom). Custom URLs must be `https://…`.
+Optional `{lat}` and `{lon}` are filled from the city you are viewing.
+
+### Settings
+
+**Settings** (always at the top of the panel) opens units, 12- or 24-hour
+clocks, the radar website, and storm alerts. The same control reads **Done**
+to return to the forecast. Home location stays the pin on the forecast.
 
 ### Home location
 
 Shared with stock Omarchy weather:
 `~/.local/state/omarchy/settings/weather.json`, via
 `omarchy-weather-location`. Click the **pin / city name** to search and
-**save** a new home. An empty commit returns to IP auto-detect. Changing
-home here also moves any other widget that reads that file.
+**save** a new home. Enter only accepts a city you picked from the list
+(or the only match). Empty Enter cancels. The ✕ clears saved location
+back to IP auto-detect. Changing home here also moves any other widget
+that reads that file.
 
 ### Peek
 
 The **search** icon next to the city name looks up another place **without
 saving it**.
 
-- Pick a geocoded suggestion (a typed name alone is not enough)
+- Pick a geocoded suggestion (arrow or click). A typed name alone is not enough.
 - Forecast, radar, and **Open radar** follow the peeked city
 - The bar pill stays on home
 - Storm alerts stay on home
-- **Back to \<home\>** returns; closing the panel does the same
+- **Back to \<home\>** returns. Peek stays until you do that (closing the panel does not throw it away).
 
 Use peek for “what’s the weather in Madison.” Use the pin to actually move
 home.
@@ -130,7 +125,7 @@ the bar settings form). `shell.json` hot-reloads on save.
 | `unit` | `auto` | `auto` / `metric` / `imperial` |
 | `refreshMinutes` | `15` | Forecast refresh, 5–120 |
 | `showHourly` | `true` | Remaining hours for today |
-| `showForecast` | `true` | Five-day strip |
+| `showForecast` | `true` | Ten-day strip |
 | `showMetrics` | `true` | Wind / humidity / pressure / UV grid |
 | `showSun` | `true` | Sunrise / sunset cell |
 | `showAirQuality` | `true` | US AQI cell |
@@ -157,8 +152,7 @@ The built-in weather widget comes back. `weather.json` is left alone.
 |--------|----------|
 | Open-Meteo | Current, hourly, daily, air quality, city search |
 | wttr.in | IP auto-detect when no home coordinates are stored |
-| RainViewer | Radar frames (while the radar tab is open; alerts use the forecast) |
-| CARTO / OpenStreetMap | Basemap |
+| RainViewer / NOAA / Windy / WU | Opened in the browser by Open radar (user's saved site) |
 
 ## Security
 
@@ -167,15 +161,17 @@ Plugins run unsandboxed inside `omarchy-shell`. This one:
 - Fetches the HTTPS endpoints above
 - Writes home location only through `omarchy-weather-location` (argv, no
   shell). Peek never writes that file
-- Opens the browser only with `omarchy-launch-browser` and an
-  `https://www.rainviewer.com/map.html` URL built from numeric coordinates
-- Invokes every process as an argv array (`curl`, `omarchy-weather-status`,
+- Opens the browser only with `omarchy-launch-browser` and an `https://`
+  URL from the saved radar site (custom URLs are sanitized: https only, no
+  `javascript:` / `data:` / `file:`)
+- Invokes every process as an argv array (`curl`,
   `omarchy-notification-send`, `omarchy-weather-location`). No `bash -c`,
   no `$(…)`, no pipe-to-shell
-- Accepts RainViewer tile hosts only over `https://*.rainviewer.com`
+- Caps JSON bodies (`curl --max-filesize` plus a length check before parse:
+  1 MiB forecast, 4 KiB place name)
 
-Right-click on the pill runs `omarchy-weather-status`, then
-`omarchy-notification-send` with that output as an argument.
+Right-click on the pill sends a notification built from this panel's current
+reading.
 
 ## License
 

@@ -7,23 +7,24 @@ when enabling this one so the bar has a single weather pill.
 
 - `manifest.json` — contract, settings schema
 - `BarWidget.qml` — bar pill; forwards panel contract; injects the service
-- `Panel.qml` — forecast tab + hosts `RadarPane.qml`
-- `RadarPane.qml` — RainViewer map, timeline, Open radar, alerts toggle
-- `Service.qml` — RainViewer manifest + optional storm alerts (one per session)
+- `Panel.qml` — forecast panel, peek, Open radar, Settings
+- `Service.qml` — optional storm alerts (one per session)
 - `Model.js` — forecast parsing (Open-Meteo / wttr)
-- `RadarModel.js`, `TileMath.js`, `TileLayer.qml` — radar map
+- `RadarModel.js` — saved radar website URLs; alert helpers
+- `TileMath.js` — used by alert sampling
+
+There is no in-panel radar map.
 
 ## Data
 
-Open-Meteo, wttr.in, RainViewer, CARTO. Location file owned by
-`omarchy-weather-location`. Radar frames fetch only while the radar tab is
-open (`acquireManifest` / `releaseManifest`).
+Open-Meteo, wttr.in. Location file owned by `omarchy-weather-location`.
+Open radar launches a user-saved https website.
 
 ## Dev
 
 ```
 omarchy plugin validate ~/.config/omarchy/plugins/io.github.calebhat.weather
-qmllint -I "$OMARCHY_PATH/shell" BarWidget.qml Panel.qml RadarPane.qml Service.qml TileLayer.qml
+qmllint -I "$OMARCHY_PATH/shell" BarWidget.qml Panel.qml Service.qml
 omarchy restart shell
 ```
 

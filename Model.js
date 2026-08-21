@@ -1,3 +1,76 @@
+// Caps on remote bodies. Timeouts do not stop a fast oversized response
+// from filling RAM; curl --max-filesize honours Content-Length, and the
+// collectors still refuse anything over the cap before JSON.parse.
+var MAX_JSON_BYTES = 1048576
+var MAX_PLACE_NAME_BYTES = 4096
+
+function curlGet(url, maxTimeSec, maxBytes) {
+  var cap = parseInt(maxBytes, 10)
+  if (!isFinite(cap) || cap < 1) cap = MAX_JSON_BYTES
+  var secs = parseInt(maxTimeSec, 10)
+  if (!isFinite(secs) || secs < 1) secs = 5
+  return ["curl", "-fsS", "--max-time", String(secs), "--max-filesize", String(cap), url]
+}
+
+function rejectOversized(raw, maxBytes) {
+  var cap = parseInt(maxBytes, 10)
+  if (!isFinite(cap) || cap < 1) cap = MAX_JSON_BYTES
+  return String(raw || "").length > cap
+}
+
+function pad2(n) {
+  return (n < 10 ? "0" : "") + n
+}
+
+function isoLocalToEpoch(iso, offsetSec) {
+  var s = String(iso || "").replace(" ", "T")
+  if (s.length < 16) return 0
+  var utcGuess = Date.parse(s + "Z")
+  if (!isFinite(utcGuess)) return 0
+  var off = Number(offsetSec)
+  if (!isFinite(off)) off = 0
+  return Math.floor(utcGuess / 1000) - off
+}
+
+// Upcoming 15-minute precipitation at this location (Open-Meteo). Used as
+// the future half of the radar timeline because RainViewer's public API
+// stopped publishing nowcast tiles on 2026-01-01.
+function minutelyPrecipForecast(report, horizonSec) {
+  var m = report && report.minutely_15
+  if (!m || !m.time) return []
+  var nowEpoch = Math.floor(Date.now() / 1000)
+  var horizon = parseInt(horizonSec, 10)
+  if (!isFinite(horizon) || horizon < 1) horizon = 7200
+  var offset = report.utc_offset_seconds
+  var out = []
+  for (var i = 0; i < m.time.length; i++) {
+    var epoch = isoLocalToEpoch(m.time[i], offset)
+    if (!isFinite(epoch) || epoch <= 0) continue
+    if (epoch <= nowEpoch) continue
+    if (epoch > nowEpoch + horizon) break
+    var mm = m.precipitation ? Number(m.precipitation[i]) : 0
+    if (!isFinite(mm)) mm = 0
+    out.push({
+      time: epoch,
+      path: "",
+      kind: "forecast",
+      precipMm: mm,
+      precipProb: m.precipitation_probability ? roundedTemp(m.precipitation_probability[i]) : ""
+    })
+  }
+  return out
+}
+
+// Open-Meteo hourly stamps are in the location timezone (timezone=auto).
+function nowIsoForReport(report, fallbackIso) {
+  var offset = report && report.utc_offset_seconds
+  if (offset === undefined || offset === null || !isFinite(Number(offset)))
+    return fallbackIso
+  var shifted = new Date(Date.now() + Number(offset) * 1000)
+  return shifted.getUTCFullYear() + "-" + pad2(shifted.getUTCMonth() + 1) + "-" + pad2(shifted.getUTCDate())
+    + "T" + pad2(shifted.getUTCHours()) + ":" + pad2(shifted.getUTCMinutes())
+}
+
 // weather.json holds {"name": ..., "latitude": ..., "longitude": ...} (see
 // omarchy-weather-location, which owns the format). Missing, blank, or
 // unparseable means the location is auto-detected from the IP address.
@@ -57,16 +130,18 @@ function parseGeocodingResults(raw) {
   }
 }
 
-function locationCommit(text, suggestions, selectedIndex) {
+function locationCommit(text, suggestions, selectedIndex, picked) {
   var name = String(text || "").replace(/^\s+|\s+$/g, "")
-  if (name === "") return { name: "", latitude: null, longitude: null }
+  if (name === "") return { name: "", latitude: null, longitude: null, empty: true }
 
   var choices = suggestions || []
-  var index = Math.max(0, Math.min(parseInt(selectedIndex, 10) || 0, choices.length - 1))
-  var suggestion = choices[index]
-  if (suggestion) return suggestion
+  if (choices.length === 1) return choices[0]
+  if (picked === true && choices.length > 0) {
+    var index = Math.max(0, Math.min(parseInt(selectedIndex, 10) || 0, choices.length - 1))
+    if (choices[index]) return choices[index]
+  }
 
-  return { name: name, latitude: null, longitude: null }
+  return { name: name, latitude: null, longitude: null, needsPick: true }
 }
 
 function isFutureForecastDate(dateString, todayString) {
@@ -212,6 +287,23 @@ function aqiInfo(aqi) {
 function timeOf(iso) {
   var s = String(iso || "")
   return s.length >= 16 ? s.slice(11, 16) : ""
+}
+
+function formatClock(hhmm, twelveHour, compact) {
+  var s = String(hhmm || "")
+  if (!twelveHour) return s
+  var parts = s.split(":")
+  var h = parseInt(parts[0], 10)
+  var m = parts.length > 1 ? parts[1] : "00"
+  if (!isFinite(h)) return s
+  var suffix = h >= 12 ? "PM" : "AM"
+  var h12 = h % 12
+  if (h12 === 0) h12 = 12
+  if (compact) {
+    if (m === "00") return h12 + suffix.charAt(0).toLowerCase()
+    return h12 + ":" + m + suffix.charAt(0).toLowerCase()
+  }
+  return h12 + ":" + m + " " + suffix
 }
 
 // Human-readable condition label for an Open-Meteo WMO weather code.
@@ -499,6 +591,12 @@ function iconForCode(code, night) {
 if (typeof module !== "undefined") {
   module.exports = {
     parseLocationFile: parseLocationFile,
+    MAX_JSON_BYTES: MAX_JSON_BYTES,
+    MAX_PLACE_NAME_BYTES: MAX_PLACE_NAME_BYTES,
+    curlGet: curlGet,
+    rejectOversized: rejectOversized,
+    nowIsoForReport: nowIsoForReport,
+    minutelyPrecipForecast: minutelyPrecipForecast,
     wttrLocationQuery: wttrLocationQuery,
     parseGeocodingResults: parseGeocodingResults,
     locationCommit: locationCommit,
@@ -531,6 +629,7 @@ if (typeof module !== "undefined") {
     uvInfo: uvInfo,
     aqiInfo: aqiInfo,
     timeOf: timeOf,
+    formatClock: formatClock,
     hourlyForecast: hourlyForecast,
     hourlyForecastToday: hourlyForecastToday,
     dailyForecast: dailyForecast,

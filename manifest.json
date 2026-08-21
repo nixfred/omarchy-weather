@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "io.github.calebhat.weather",
   "name": "Weather",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "calebhat",
   "license": "MIT",
-  "description": "Replaces the Omarchy weather pill with today's hourly forecast, a five-day outlook, and a live radar map. Click Open radar to view today's radar in your default browser.",
+  "description": "Replaces the Omarchy weather pill with today's hourly forecast, a ten-day outlook, and a saved radar site that opens in your default browser.",
   "homepage": "https://github.com/calebhat/omarchy-weather",
   "kinds": [
     "service",
@@ -17,7 +17,7 @@
   },
   "barWidget": {
     "displayName": "Weather",
-    "description": "Weather pill with hourly and five-day forecast plus live radar. Replaces the built-in weather widget.",
+    "description": "Weather pill with hourly and ten-day forecast, plus Open radar in the browser.",
     "category": "Info",
     "allowMultiple": false,
     "defaultSection": "center",
@@ -33,10 +33,9 @@
       "alertsEnabled": false,
       "alertRadiusKm": 100,
       "alertMinIntensity": "Heavy",
-      "colorScheme": "TITAN",
-      "defaultZoom": 7,
-      "smoothTiles": true,
-      "showSnow": true
+      "radarSite": "RainViewer",
+      "radarUrl": "",
+      "timeFormat": "24"
     },
     "schema": [
       {
@@ -66,7 +65,7 @@
       {
         "key": "showForecast",
         "type": "boolean",
-        "label": "Show five-day forecast",
+        "label": "Show ten-day forecast",
         "defaultValue": true
       },
       {
@@ -98,7 +97,7 @@
         "type": "boolean",
         "label": "Storm alerts",
         "defaultValue": false,
-        "description": "Notify when rain or a storm is forecast to reach you. Also toggleable from the radar tab."
+        "description": "Notify when rain or a storm is forecast to reach you."
       },
       {
         "key": "alertRadiusKm",
@@ -117,41 +116,27 @@
         "defaultValue": "Heavy"
       },
       {
-        "key": "colorScheme",
+        "key": "radarSite",
         "type": "enum",
-        "label": "Radar colour scheme",
-        "options": [
-          "TITAN",
-          "Meteored",
-          "NEXRAD Level III",
-          "Rainbow",
-          "The Weather Channel",
-          "Universal Blue",
-          "Dark Sky",
-          "Greyscale"
-        ],
-        "defaultValue": "TITAN"
+        "label": "Radar website",
+        "options": ["RainViewer", "NOAA", "Windy", "Weather Underground", "Custom"],
+        "defaultValue": "RainViewer",
+        "description": "Opened by Open radar in your default browser. The choice is saved."
       },
       {
-        "key": "defaultZoom",
-        "type": "integer",
-        "label": "Default radar zoom",
-        "min": 3,
-        "max": 10,
-        "step": 1,
-        "defaultValue": 7
+        "key": "radarUrl",
+        "type": "string",
+        "label": "Custom radar URL",
+        "defaultValue": "",
+        "description": "Used when Radar website is Custom. Must be https. Optional {lat} and {lon} placeholders."
       },
       {
-        "key": "smoothTiles",
-        "type": "boolean",
-        "label": "Smooth radar",
-        "defaultValue": true
-      },
-      {
-        "key": "showSnow",
-        "type": "boolean",
-        "label": "Distinguish snow",
-        "defaultValue": true
+        "key": "timeFormat",
+        "type": "enum",
+        "label": "Time format",
+        "options": ["12", "24"],
+        "defaultValue": "24",
+        "description": "12-hour or 24-hour clocks in this plugin."
       }
     ]
   }

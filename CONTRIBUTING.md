@@ -14,8 +14,10 @@ location in `~/.local/state/omarchy/settings/weather.json` via
 `omarchy-weather-location`. Do not add a second location store.
 
 Browser radar must stay an argv call to `omarchy-launch-browser` with an
-`https://www.rainviewer.com/map.html` URL built from numeric coordinates.
+`https://` URL from `RadarModel.resolveRadarUrl`. Custom URLs are https-only.
 Do not restore `bar.run` with `$(…)` for notifications.
+Do not bring back an in-panel radar map unless one provider supplies both
+history and forecast tiles.
 
 Commit as `calebhat <97716470+calebhat@users.noreply.github.com>`.
 

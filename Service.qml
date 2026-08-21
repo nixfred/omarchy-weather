@@ -163,113 +163,6 @@ Item {
   }
 
   // ---------------------------------------------------------------------------
-  // RainViewer frame manifest
-  // ---------------------------------------------------------------------------
-
-  property var radarManifest: null
-  property int frameConsumers: 0
-  property int frameFailures: 0
-
-  readonly property var frames: radarManifest ? radarManifest.past : []
-  readonly property string tileHost: radarManifest ? radarManifest.host : ""
-  readonly property int latestFrameTime: {
-    var frame = RadarModel.latestFrame(radarManifest)
-    return frame ? frame.time : 0
-  }
-
-  // Whether the newest frame in hand is one RainViewer could still improve on.
-  // Frames publish about every ten minutes, so one younger than that is the
-  // newest that exists, and asking again would return the same bytes.
-  //
-  // A function rather than a property: the answer depends on the passing of
-  // time, and a binding would only be recomputed when the manifest changed —
-  // freezing it at "current" for exactly as long as it stayed out of date.
-  //
-  // A frame that reads as newer than now means the clock moved backwards, not
-  // that RainViewer published into the future: an RTC kept in local time, or
-  // NTP correcting a drift. Freshness cannot be judged against a clock that
-  // just jumped, so the safe answer is to go and ask.
-  function manifestIsCurrent() {
-    if (!radarManifest) return false
-    var age = Date.now() / 1000 - latestFrameTime
-    return age >= 0 && age < RadarModel.FRAME_INTERVAL_SEC
-  }
-
-  // The map calls these while it is open. Refcounted rather than boolean so two
-  // monitors showing the panel do not fight over whether fetching should stop.
-  function acquireManifest() {
-    frameConsumers++
-    refreshManifest()
-  }
-
-  function releaseManifest() {
-    frameConsumers = Math.max(0, frameConsumers - 1)
-  }
-
-  // Every request passes through here, so this is where "is it worth asking"
-  // belongs, rather than at each call site. Three reasons not to: one is
-  // already in flight, the frames in hand are already the newest published, or
-  // the last attempt was too recent to have changed anything.
-  readonly property int minFetchGapMs: 60000
-  property real lastManifestFetchMs: 0
-
-  function refreshManifest() {
-    if (manifestProc.running) return
-    if (manifestIsCurrent()) return
-
-    var now = Date.now()
-    // As above, in the other direction: a request stamped in the future is a
-    // clock that moved, and left alone it would refuse every fetch until real
-    // time caught up — hours, on a machine whose RTC was wrong.
-    if (lastManifestFetchMs > now) lastManifestFetchMs = 0
-
-    // The floor bounds what opening and closing the map repeatedly can cost,
-    // so it guards frames already on screen and waits until there are some.
-    // Someone watching an empty map who closes it and opens it again is asking
-    // to retry, and a minute of silence is not an answer to that.
-    if (radarManifest && lastManifestFetchMs > 0 && now - lastManifestFetchMs < minFetchGapMs) return
-
-    lastManifestFetchMs = now
-    manifestProc.command = ["curl", "-fsS", "--max-time", "10", RadarModel.MANIFEST_URL]
-    manifestProc.running = true
-  }
-
-  Process {
-    id: manifestProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var parsed = RadarModel.parseManifest(text)
-        if (!parsed) {
-          // Keep the previous manifest: stale frames still render, and the
-          // next tick retries. Blanking the map on one failed request would
-          // be a worse outcome than showing data a few minutes old.
-          root.frameFailures++
-          return
-        }
-        root.frameFailures = 0
-        root.radarManifest = parsed
-      }
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Radar coverage
-  // ---------------------------------------------------------------------------
-
-  // Whether a ground radar reaches the configured location. Large parts of the
-  // world have none, and an empty map there reads as a broken plugin unless it
-  // says so. Resolved by the panel, which can decode images; the service just
-  // remembers the answer.
-  property bool coverageChecked: false
-  property bool hasCoverage: true
-
-  function reportCoverage(covered) {
-    coverageChecked = true
-    hasCoverage = covered === true
-  }
-
-  // ---------------------------------------------------------------------------
   // Forecast polling
   // ---------------------------------------------------------------------------
 
@@ -396,7 +289,7 @@ Item {
       + "&forecast_minutely_15=" + forecastSlots
       + "&forecast_hours=" + Math.max(2, Math.ceil(leadMinutes / 60))
       + "&timezone=auto"
-    forecastProc.command = ["curl", "-fsS", "--max-time", "12", url]
+    forecastProc.command = RadarModel.curlGet(url, 12, RadarModel.MAX_ALERT_JSON_BYTES)
     forecastProc.running = true
   }
 
@@ -409,7 +302,12 @@ Item {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        var raw = String(text || "").trim()
+        var raw = String(text || "")
+        if (RadarModel.rejectOversized(raw, RadarModel.MAX_ALERT_JSON_BYTES)) {
+          root.consecutiveFailures++
+          return
+        }
+        raw = raw.trim()
         if (raw === "") return
         var data
         try {
@@ -669,16 +567,12 @@ Item {
   Timer {
     id: pollTimer
     readonly property bool alerting: root.alertsEnabled && root.hasLocation
-    readonly property bool watched: root.frameConsumers > 0
-    interval: root.baseIntervalMs * (alerting && !watched ? root.backoffMultiplier : 1)
+    interval: root.baseIntervalMs * (alerting ? root.backoffMultiplier : 1)
     repeat: true
-    running: alerting || watched
+    running: alerting
     triggeredOnStart: true
     onTriggered: {
       if (alerting) root.checkNow()
-      // Frames serve the map and nothing else, so a closed map is not a reason
-      // to fetch them — including for the alert, which reads the forecast.
-      if (watched) root.refreshManifest()
     }
   }
 

@@ -53,7 +53,7 @@ BarWidget {
     if (panelLoader.item) panelLoader.item.closeForPopoutSwitch()
   }
 
-  visible: panelLoader.item && panelLoader.item.label !== ""
+  visible: true
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
@@ -76,10 +76,9 @@ BarWidget {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: panelLoader.item ? (panelLoader.item.barLabel || panelLoader.item.label) : ""
+    text: panelLoader.item ? (panelLoader.item.barLabel || panelLoader.item.label || "") : ""
     slotSize: Style.bar.statusSlot
-    // Tooltip suppressed because the panel is the detail view.
-    tooltipText: ""
+    tooltipText: "Weather — click forecast, middle refresh, right notify"
 
     onPressed: function(b) {
       if (b === Qt.RightButton) {
