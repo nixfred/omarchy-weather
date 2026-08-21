@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.calebhat.weather",
+  "name": "Weather",
+  "version": "1.0.0",
+  "author": "calebhat",
+  "license": "MIT",
+  "description": "Replaces the Omarchy weather pill with today's hourly forecast, a five-day outlook, and a live radar map. Click Open radar to view today's radar in your default browser.",
+  "homepage": "https://github.com/calebhat/omarchy-weather",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Weather",
+    "description": "Weather pill with hourly and five-day forecast plus live radar. Replaces the built-in weather widget.",
+    "category": "Info",
+    "allowMultiple": false,
+    "defaultSection": "center",
+    "defaults": {
+      "unit": "auto",
+      "refreshMinutes": 15,
+      "showHourly": true,
+      "showForecast": true,
+      "showAirQuality": true,
+      "showMetrics": true,
+      "showSun": true,
+      "showFeelsLike": true,
+      "alertsEnabled": false,
+      "alertRadiusKm": 100,
+      "alertMinIntensity": "Heavy",
+      "colorScheme": "TITAN",
+      "defaultZoom": 7,
+      "smoothTiles": true,
+      "showSnow": true
+    },
+    "schema": [
+      {
+        "key": "unit",
+        "type": "enum",
+        "label": "Units",
+        "options": ["auto", "metric", "imperial"],
+        "defaultValue": "auto",
+        "description": "Temperature and wind units. Auto follows your locale and country."
+      },
+      {
+        "key": "refreshMinutes",
+        "type": "integer",
+        "label": "Refresh interval (minutes)",
+        "min": 5,
+        "max": 120,
+        "step": 5,
+        "defaultValue": 15
+      },
+      {
+        "key": "showHourly",
+        "type": "boolean",
+        "label": "Show hourly forecast",
+        "defaultValue": true,
+        "description": "Remaining hours for today."
+      },
+      {
+        "key": "showForecast",
+        "type": "boolean",
+        "label": "Show five-day forecast",
+        "defaultValue": true
+      },
+      {
+        "key": "showAirQuality",
+        "type": "boolean",
+        "label": "Show air quality",
+        "defaultValue": true
+      },
+      {
+        "key": "showMetrics",
+        "type": "boolean",
+        "label": "Show metrics grid",
+        "defaultValue": true
+      },
+      {
+        "key": "showSun",
+        "type": "boolean",
+        "label": "Show sun times",
+        "defaultValue": true
+      },
+      {
+        "key": "showFeelsLike",
+        "type": "boolean",
+        "label": "Show feels-like",
+        "defaultValue": true
+      },
+      {
+        "key": "alertsEnabled",
+        "type": "boolean",
+        "label": "Storm alerts",
+        "defaultValue": false,
+        "description": "Notify when rain or a storm is forecast to reach you. Also toggleable from the radar tab."
+      },
+      {
+        "key": "alertRadiusKm",
+        "type": "integer",
+        "label": "Alert radius (km)",
+        "min": 25,
+        "max": 250,
+        "step": 25,
+        "defaultValue": 100
+      },
+      {
+        "key": "alertMinIntensity",
+        "type": "enum",
+        "label": "Alert threshold",
+        "options": ["Light", "Moderate", "Heavy", "Severe"],
+        "defaultValue": "Heavy"
+      },
+      {
+        "key": "colorScheme",
+        "type": "enum",
+        "label": "Radar colour scheme",
+        "options": [
+          "TITAN",
+          "Meteored",
+          "NEXRAD Level III",
+          "Rainbow",
+          "The Weather Channel",
+          "Universal Blue",
+          "Dark Sky",
+          "Greyscale"
+        ],
+        "defaultValue": "TITAN"
+      },
+      {
+        "key": "defaultZoom",
+        "type": "integer",
+        "label": "Default radar zoom",
+        "min": 3,
+        "max": 10,
+        "step": 1,
+        "defaultValue": 7
+      },
+      {
+        "key": "smoothTiles",
+        "type": "boolean",
+        "label": "Smooth radar",
+        "defaultValue": true
+      },
+      {
+        "key": "showSnow",
+        "type": "boolean",
+        "label": "Distinguish snow",
+        "defaultValue": true
+      }
+    ]
+  },
+  "omarchy": {
+    "clonedFrom": "omarchy.weather"
+  }
+}
