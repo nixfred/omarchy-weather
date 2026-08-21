@@ -52,7 +52,10 @@ notification of current conditions. Escape closes the panel.
 
 Location is shared with Omarchy's weather file
 (`~/.local/state/omarchy/settings/weather.json`). Click the location label
-to search; an empty commit returns to IP auto-detect.
+to change home; an empty commit returns to IP auto-detect. The search icon
+peeks at another city without saving it — forecast and radar follow the
+peek, the bar pill stays on home, and **Back to …** (or closing the panel)
+returns. Storm alerts always use the saved home.
 
 Optional storm alerts default **off**. Turn them on from the radar tab or
 the widget settings.

@@ -41,9 +41,39 @@ Item {
   property int tileSize: 256
   property bool smooth: true
 
+  // True once every tile with a URL has loaded or failed. The radar pane
+  // waits for this on the hidden layer so it never reveals an empty overlay.
+  property bool ready: false
+
   signal tileFailed()
 
   clip: true
+
+  function updateReady() {
+    var n = tileRepeater.count
+    if (n === 0 || !root.tileUrlFor) {
+      if (root.ready) root.ready = false
+      return
+    }
+    var pending = false
+    var anySource = false
+    for (var i = 0; i < n; i++) {
+      var img = tileRepeater.itemAt(i)
+      if (!img) {
+        pending = true
+        break
+      }
+      var src = String(img.source || "")
+      if (src === "") continue
+      anySource = true
+      if (img.status === Image.Loading || img.status === Image.Null) {
+        pending = true
+        break
+      }
+    }
+    var next = anySource && !pending
+    if (root.ready !== next) root.ready = next
+  }
 
   // Laid out in source-zoom space, then scaled onto the screen. Passing the
   // viewport through sourceScale is what lets one upscaled tile cover the area
@@ -59,8 +89,6 @@ Item {
     var list = []
     var view = layout
     if (!view || width <= 0 || height <= 0) return list
-    // `revision` is read so the model rebuilds when the frame changes.
-    var unused = revision
     var scale = sourceScale
     for (var y = view.minY; y <= view.maxY; y++) {
       if (!TileMath.isValidTileY(y, sourceZoom)) continue
@@ -76,8 +104,17 @@ Item {
     return list
   }
 
+  onTilesChanged: Qt.callLater(updateReady)
+  onRevisionChanged: {
+    ready = false
+    Qt.callLater(updateReady)
+  }
+
   Repeater {
+    id: tileRepeater
     model: root.tiles
+    onItemAdded: root.updateReady()
+    onItemRemoved: root.updateReady()
 
     Image {
       required property var modelData
@@ -87,7 +124,12 @@ Item {
       width: root.tileSize * root.sourceScale
       height: root.tileSize * root.sourceScale
 
-      source: root.tileUrlFor ? root.tileUrlFor(root.sourceZoom, modelData.tileX, modelData.tileY) : ""
+      // `revision` is read here so a new frame updates Image.source in place
+      // instead of destroying the Repeater (which flashed an empty overlay).
+      source: {
+        var _rev = root.revision
+        return root.tileUrlFor ? root.tileUrlFor(root.sourceZoom, modelData.tileX, modelData.tileY) : ""
+      }
       asynchronous: true
       cache: true
       // Upscaled tiles need the smoothing; native-resolution ones look
@@ -98,7 +140,11 @@ Item {
       // A missing tile is normal at the edges of coverage and must not look
       // like a rendering fault, so it simply stays invisible.
       visible: status === Image.Ready
-      onStatusChanged: if (status === Image.Error) root.tileFailed()
+      onStatusChanged: {
+        if (status === Image.Error) root.tileFailed()
+        root.updateReady()
+      }
+      onSourceChanged: root.updateReady()
     }
   }
 }

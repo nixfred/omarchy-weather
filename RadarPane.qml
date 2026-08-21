@@ -12,6 +12,10 @@ Item {
   property var settings: ({})
   property bool active: false
   property string moduleName: "io.github.calebhat.weather"
+  property real peekLatitude: Number.NaN
+  property real peekLongitude: Number.NaN
+  property string peekName: ""
+  readonly property bool peeking: isFinite(peekLatitude) && isFinite(peekLongitude)
 
   readonly property bool alertsEnabled: setting("alertsEnabled", false) === true
   readonly property int alertRadiusKm: Math.max(25, Math.min(250, Number(setting("alertRadiusKm", 100)) || 100))
@@ -47,9 +51,11 @@ Item {
     return hours + " h " + rest + " min"
   }
 
-  readonly property bool hasLocation: radar ? radar.hasLocation === true : false
+  readonly property bool hasLocation: peeking || (radar ? radar.hasLocation === true : false)
   property real homeLatitude: 0
   property real homeLongitude: 0
+  readonly property real focusLatitude: peeking ? peekLatitude : homeLatitude
+  readonly property real focusLongitude: peeking ? peekLongitude : homeLongitude
 
   function updateHome() {
     if (!radar || !radar.location) return
@@ -70,7 +76,7 @@ Item {
     updateHome()
     syncManifest()
   }
-  readonly property string locationName: radar ? radar.locationName : ""
+  readonly property string locationName: peeking ? peekName : (radar ? radar.locationName : "")
 
   property real viewLatitude: 0
   property real viewLongitude: 0
@@ -80,12 +86,19 @@ Item {
   property bool panned: false
 
   function recenter() {
+    if (peeking) {
+      viewLatitude = peekLatitude
+      viewLongitude = peekLongitude
+      return
+    }
     if (!hasLocation) return
     viewLatitude = homeLatitude
     viewLongitude = homeLongitude
   }
 
   onHasLocationChanged: updateHome()
+  onPeekLatitudeChanged: { panned = false; recenter() }
+  onPeekLongitudeChanged: { panned = false; recenter() }
 
   readonly property var frames: radar ? radar.frames : []
   property int frameIndex: 0
@@ -109,10 +122,23 @@ Item {
   property bool frontIsA: true
   onFrameIndexChanged: showFrame(frameIndex)
 
+  // Load the new frame on the hidden layer and promote it only once its
+  // tiles are ready. Swapping immediately showed an empty overlay (the
+  // precipitation) against the dark basemap until the next PNG arrived.
   function showFrame(index) {
     if (index < 0 || frames.length === 0) return
+    var frontIndex = frontIsA ? frameA : frameB
+    if (index === frontIndex) return
     if (frontIsA) frameB = index
     else frameA = index
+    Qt.callLater(promoteIfReady)
+  }
+
+  function promoteIfReady() {
+    var back = frontIsA ? radarB : radarA
+    var backIndex = frontIsA ? frameB : frameA
+    if (!back || backIndex !== frameIndex) return
+    if (!back.ready) return
     frontIsA = !frontIsA
   }
 
@@ -165,7 +191,7 @@ Item {
   }
 
   function openInBrowser() {
-    var url = RadarModel.browserRadarUrl(root.homeLatitude, root.homeLongitude)
+    var url = RadarModel.browserRadarUrl(root.focusLatitude, root.focusLongitude)
     if (url.indexOf("https://www.rainviewer.com/map.html") !== 0) return
     Quickshell.execDetached(["omarchy-launch-browser", url])
   }
@@ -182,12 +208,13 @@ Item {
   function radarTileUrlB(z, x, y) { return root.radarTileUrlForFrame(root.frameB, z, x, y) }
 
   readonly property string coverageProbeUrl: {
+    if (peeking) return ""
     if (!radar || !radar.tileHost || !hasLocation) return ""
     if (radar.coverageChecked) return ""
     return RadarModel.coverageTileUrl(radar.tileHost, 256, RadarModel.MAX_RADAR_ZOOM,
       homeLatitude, homeLongitude)
   }
-  readonly property bool coverageMissing: radar ? (radar.coverageChecked && !radar.hasCoverage) : false
+  readonly property bool coverageMissing: peeking ? false : (radar ? (radar.coverageChecked && !radar.hasCoverage) : false)
 
   implicitHeight: content.implicitHeight
   implicitWidth: content.implicitWidth
@@ -217,6 +244,7 @@ Item {
         }
 
         TileLayer {
+          id: radarA
           anchors.fill: parent
           centerLatitude: root.viewLatitude
           centerLongitude: root.viewLongitude
@@ -226,10 +254,12 @@ Item {
           revision: root.frameA + (root.colorSchemeId * 1000)
           smooth: root.smoothTiles
           opacity: root.frontIsA ? 1 : 0
+          onReadyChanged: if (ready) root.promoteIfReady()
           Behavior on opacity { NumberAnimation { duration: 380; easing.type: Easing.InOutQuad } }
         }
 
         TileLayer {
+          id: radarB
           anchors.fill: parent
           centerLatitude: root.viewLatitude
           centerLongitude: root.viewLongitude
@@ -239,6 +269,7 @@ Item {
           revision: root.frameB + (root.colorSchemeId * 1000)
           smooth: root.smoothTiles
           opacity: root.frontIsA ? 0 : 1
+          onReadyChanged: if (ready) root.promoteIfReady()
           Behavior on opacity { NumberAnimation { duration: 380; easing.type: Easing.InOutQuad } }
         }
 
@@ -351,7 +382,7 @@ Item {
 
         Text {
           anchors.centerIn: parent
-          visible: root.frames.length === 0
+          visible: !root.hasLocation || (root.frames.length === 0) || (!radarA.ready && !radarB.ready)
           text: root.hasLocation ? "Loading radar…" : "Set a location to centre radar"
           color: root.bar ? root.bar.foreground : Color.foreground
           font.family: Style.font.family

@@ -46,6 +46,7 @@ Panel {
   function close() {
     setCenterHoverRevealSuppressed(false)
     if (root.editingLocation) root.cancelEditingLocation()
+    if (root.peeking) root.clearPeek()
     root.controller.hide()
   }
 
@@ -80,6 +81,7 @@ Panel {
   readonly property string locationQuery: Model.wttrLocationQuery(configuredLocationState.name, configuredLocationState.latitude, configuredLocationState.longitude)
 
   onLocationQueryChanged: {
+    if (peeking) return
     if (savingLocation) savingLocationQueryStarted = true
     forecastRetries = 0
     dailyForecastRetries = 0
@@ -120,6 +122,7 @@ Panel {
 
   // Click-to-edit state for the location label.
   property bool editingLocation: false
+  property string locationEditMode: "home"
   property bool savingLocation: false
   property bool savingLocationQueryStarted: false
   property var locationSuggestions: []
@@ -127,12 +130,27 @@ Panel {
   property string geocodePendingQuery: ""
   property string geocodeActiveQuery: ""
 
+  // Temporary city lookup. Never written to weather.json; the bar pill stays
+  // on the saved home location until peek is cleared.
+  property var peekLocation: null
+  readonly property bool peeking: {
+    if (!peekLocation) return false
+    var lat = parseFloat(String(peekLocation.latitude))
+    var lon = parseFloat(String(peekLocation.longitude))
+    return isFinite(lat) && isFinite(lon)
+  }
+  readonly property string peekName: peeking ? String(peekLocation.name || "") : ""
+  readonly property string homeName: configuredLocation || wttrLocation || "home"
+
   // Shared hero/bar icon state, updated with each successful weather response.
   property string label: ""
+  property string homeLabel: ""
+  readonly property string barLabel: homeLabel || label
 
   // wttr's current conditions when available; open-meteo's (bundled with the
   // much faster daily forecast fetch) fill the hero while wttr is in flight.
-  readonly property bool hasConfiguredCoordinates: !isNaN(parseFloat(String(configuredLocationState.latitude))) && !isNaN(parseFloat(String(configuredLocationState.longitude)))
+  readonly property bool hasHomeCoordinates: !isNaN(parseFloat(String(configuredLocationState.latitude))) && !isNaN(parseFloat(String(configuredLocationState.longitude)))
+  readonly property bool hasConfiguredCoordinates: peeking || hasHomeCoordinates
   readonly property var openMeteoCurrent: Model.openMeteoCurrentCondition(dailyForecastReport)
   readonly property var current: (hasConfiguredCoordinates && openMeteoCurrent) ? openMeteoCurrent : ((report && report.current_condition && report.current_condition[0]) ? report.current_condition[0] : openMeteoCurrent)
   readonly property var areaInfo: report && report.nearest_area && report.nearest_area[0] ? report.nearest_area[0] : null
@@ -151,7 +169,7 @@ Panel {
   readonly property bool showForecast: setting("showForecast", true) !== false
   readonly property bool showFeelsLike: setting("showFeelsLike", true) !== false
 
-  readonly property string reportLocation: configuredLocation || wttrLocation || (areaInfo && areaInfo.areaName && areaInfo.areaName[0] ? areaInfo.areaName[0].value : "")
+  readonly property string reportLocation: peeking ? peekName : (configuredLocation || wttrLocation || (areaInfo && areaInfo.areaName && areaInfo.areaName[0] ? areaInfo.areaName[0].value : ""))
   readonly property string reportTempNum: current ? String(useImperial ? current.temp_F : current.temp_C) : ""
   readonly property string tempUnit: "°" + (useImperial ? "F" : "C")
   readonly property string reportFeels: current ? formatTemp(useImperial ? current.FeelsLikeF : current.FeelsLikeC) : ""
@@ -225,21 +243,28 @@ Panel {
     // wttr.in's full j1 fetch only serves the no-coordinates (IP auto-detect)
     // path — with configured coordinates Open-Meteo is authoritative, so skip
     // the extra external request entirely.
-    if (!root.hasConfiguredCoordinates && !forecastProc.running) forecastProc.running = true
-    if (root.locationQuery === "" && !locationProc.running) locationProc.running = true
+    if (!root.peeking && !root.hasHomeCoordinates && !forecastProc.running) forecastProc.running = true
+    if (!root.peeking && root.locationQuery === "" && !locationProc.running) locationProc.running = true
     refreshDailyForecast(null)
   }
 
   function refreshDailyForecast(sourceReport) {
     if (dailyForecastProc.running) return
 
-    var lat = parseFloat(String(root.configuredLocationState.latitude))
-    var lon = parseFloat(String(root.configuredLocationState.longitude))
-    if (isNaN(lat) || isNaN(lon)) {
-      var area = sourceReport && sourceReport.nearest_area && sourceReport.nearest_area[0] ? sourceReport.nearest_area[0] : root.areaInfo
-      if (!area) return
-      lat = parseFloat(String(area.latitude || ""))
-      lon = parseFloat(String(area.longitude || ""))
+    var lat = NaN
+    var lon = NaN
+    if (root.peeking) {
+      lat = parseFloat(String(root.peekLocation.latitude))
+      lon = parseFloat(String(root.peekLocation.longitude))
+    } else {
+      lat = parseFloat(String(root.configuredLocationState.latitude))
+      lon = parseFloat(String(root.configuredLocationState.longitude))
+      if (isNaN(lat) || isNaN(lon)) {
+        var area = sourceReport && sourceReport.nearest_area && sourceReport.nearest_area[0] ? sourceReport.nearest_area[0] : root.areaInfo
+        if (!area) return
+        lat = parseFloat(String(area.latitude || ""))
+        lon = parseFloat(String(area.longitude || ""))
+      }
     }
     if (isNaN(lat) || isNaN(lon)) return
 
@@ -275,6 +300,11 @@ Panel {
   //      field; picking a geocoded suggestion persists name + coordinates to
   //      the module's shell.json entry. An empty commit returns to auto.
   function startEditingLocation() {
+    if (root.peeking) {
+      startPeekSearch()
+      return
+    }
+    locationEditMode = "home"
     editingLocation = true
     savingLocation = false
     savingLocationQueryStarted = false
@@ -287,8 +317,22 @@ Panel {
     })
   }
 
+  function startPeekSearch() {
+    locationEditMode = "peek"
+    editingLocation = true
+    savingLocation = false
+    savingLocationQueryStarted = false
+    locationSuggestions = []
+    suggestionIndex = 0
+    Qt.callLater(function() {
+      locationField.text = ""
+      locationField.forceActiveFocus()
+    })
+  }
+
   function cancelEditingLocation() {
     editingLocation = false
+    locationEditMode = "home"
     savingLocation = false
     savingLocationQueryStarted = false
     locationSuggestions = []
@@ -296,8 +340,50 @@ Panel {
     Qt.callLater(function() { if (keyCatcher) keyCatcher.forceActiveFocus() })
   }
 
+  function refetchView() {
+    forecastRetries = 0
+    dailyForecastRetries = 0
+    airQualityRetries = 0
+    forecastRetryTimer.stop()
+    dailyForecastRetryTimer.stop()
+    airQualityRetryTimer.stop()
+    forecastProc.running = false
+    dailyForecastProc.running = false
+    airQualityProc.running = false
+    Qt.callLater(refresh)
+  }
+
+  function applyPeek(location) {
+    if (!location || location.name === "") {
+      cancelEditingLocation()
+      return
+    }
+    var lat = parseFloat(location.latitude)
+    var lon = parseFloat(location.longitude)
+    if (!isFinite(lat) || !isFinite(lon)) return
+    peekLocation = { name: location.name, latitude: lat, longitude: lon }
+    report = null
+    dailyForecastReport = null
+    airQualityReport = null
+    cancelEditingLocation()
+    refetchView()
+  }
+
+  function clearPeek() {
+    if (!peekLocation && !peeking) return
+    peekLocation = null
+    report = null
+    dailyForecastReport = null
+    airQualityReport = null
+    refetchView()
+  }
+
   function commitLocation() {
     var location = Model.locationCommit(locationField.text, locationSuggestions, suggestionIndex)
+    if (locationEditMode === "peek") {
+      applyPeek(location)
+      return
+    }
     if (location.name === "") {
       clearLocation()
       return
@@ -320,6 +406,10 @@ Panel {
 
   function pickSuggestion(suggestion) {
     if (!suggestion) return
+    if (locationEditMode === "peek") {
+      applyPeek(suggestion)
+      return
+    }
     savingLocation = true
     savingLocationQueryStarted = false
     configuredLocationState = {
@@ -384,8 +474,8 @@ Panel {
   }
 
   function openRadarInBrowser() {
-    var lat = parseFloat(String(root.configuredLocationState.latitude))
-    var lon = parseFloat(String(root.configuredLocationState.longitude))
+    var lat = root.peeking ? parseFloat(String(root.peekLocation.latitude)) : parseFloat(String(root.configuredLocationState.latitude))
+    var lon = root.peeking ? parseFloat(String(root.peekLocation.longitude)) : parseFloat(String(root.configuredLocationState.longitude))
     if (!isFinite(lat) || !isFinite(lon)) {
       lat = root.lastLat
       lon = root.lastLon
@@ -409,12 +499,13 @@ Panel {
         try {
           var parsed = JSON.parse(raw)
           root.report = parsed
-          if (!root.hasConfiguredCoordinates)
+          if (!root.peeking && !root.hasHomeCoordinates)
             root.label = Model.provisionalCurrentIcon(parsed.current_condition && parsed.current_condition[0], root.label)
+          if (!root.peeking) root.homeLabel = root.label
           root.forecastRetries = 0
           if (Model.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "wttr"))
             root.finishSavingLocation()
-          if (isNaN(parseFloat(String(root.configuredLocationState.latitude))))
+          if (!root.peeking && isNaN(parseFloat(String(root.configuredLocationState.latitude))))
             root.refreshDailyForecast(parsed)
         } catch (e) {
           root.scheduleForecastRetry()
@@ -480,9 +571,12 @@ Panel {
           var parsed = JSON.parse(raw)
           var parsedCurrent = Model.openMeteoCurrentCondition(parsed)
           root.dailyForecastReport = parsed
-          root.label = Model.currentIcon(parsedCurrent, root.label)
+          if (!root.peeking) {
+            root.label = Model.currentIcon(parsedCurrent, root.label)
+            root.homeLabel = root.label
+          }
           root.dailyForecastRetries = 0
-          if (Model.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "open-meteo"))
+          if (!root.peeking && Model.weatherResponseCompletesSave(root.hasHomeCoordinates, "open-meteo"))
             root.finishSavingLocation()
         } catch (e) {
           root.scheduleDailyForecastRetry()
@@ -689,25 +783,54 @@ KeyboardPanel {
                 visible: !root.editingLocation && root.reportLocation !== ""
                 spacing: Style.space(6)
 
-                TapHandler { onTapped: root.startEditingLocation() }
+                Item {
+                  implicitWidth: pinRow.implicitWidth
+                  implicitHeight: pinRow.implicitHeight
+                  TapHandler { onTapped: root.startEditingLocation() }
+                  HoverHandler { cursorShape: Qt.PointingHandCursor }
+
+                  Row {
+                    id: pinRow
+                    spacing: Style.space(6)
+
+                    Text {
+                      text: "\uf041"
+                      color: root.dimText
+                      font.family: root.bar.fontFamily
+                      font.pixelSize: Style.font.body
+                      anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Text {
+                      text: (root.reportLocation || "").toUpperCase()
+                      color: root.dimText
+                      font.family: root.bar.fontFamily
+                      font.pixelSize: Style.font.body
+                      font.letterSpacing: root.capsLetterSpacing
+                      anchors.verticalCenter: parent.verticalCenter
+                    }
+                  }
+                }
+
+                Text {
+                  text: "\uf002"
+                  color: root.dimText
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.body
+                  anchors.verticalCenter: parent.verticalCenter
+                  TapHandler { onTapped: root.startPeekSearch() }
+                  HoverHandler { cursorShape: Qt.PointingHandCursor }
+                }
+              }
+
+              Text {
+                visible: root.peeking && !root.editingLocation
+                text: "Back to " + root.homeName
+                color: root.bar.foreground
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                TapHandler { onTapped: root.clearPeek() }
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
-
-                Text {
-                  text: "\uf041"
-                  color: root.dimText
-                  font.family: root.bar.fontFamily
-                  font.pixelSize: Style.font.body
-                  anchors.verticalCenter: parent.verticalCenter
-                }
-
-                Text {
-                  text: (root.reportLocation || "").toUpperCase()
-                  color: root.dimText
-                  font.family: root.bar.fontFamily
-                  font.pixelSize: Style.font.body
-                  font.letterSpacing: root.capsLetterSpacing
-                  anchors.verticalCenter: parent.verticalCenter
-                }
               }
 
               Row {
@@ -718,7 +841,7 @@ KeyboardPanel {
                   id: locationField
                   width: Style.space(190)
                   enabled: !root.savingLocation
-                  placeholderText: "Search city"
+                  placeholderText: root.locationEditMode === "peek" ? "Peek another city" : "Search city"
                   foreground: root.bar.foreground
                   font.family: root.bar.fontFamily
 
@@ -769,7 +892,10 @@ KeyboardPanel {
                     enabled: !root.savingLocation
                     hoverEnabled: true
                     cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                    onClicked: root.clearLocation()
+                    onClicked: {
+                      if (root.locationEditMode === "peek") root.cancelEditingLocation()
+                      else root.clearLocation()
+                    }
                   }
                 }
               }
@@ -1369,6 +1495,9 @@ KeyboardPanel {
             settings: root.settings
             moduleName: root.moduleName
             active: root.opened && root.activeTab === "radar"
+            peekLatitude: root.peeking ? Number(root.peekLocation.latitude) : Number.NaN
+            peekLongitude: root.peeking ? Number(root.peekLocation.longitude) : Number.NaN
+            peekName: root.peekName
           }
 
         }
