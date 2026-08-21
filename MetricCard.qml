@@ -53,6 +53,7 @@ Rectangle {
         spacing: Style.space(1)
 
         Text {
+          textFormat: Text.PlainText
           Layout.fillWidth: true
           text: card.label
           color: card.foreground
@@ -62,6 +63,7 @@ Rectangle {
         }
 
         Text {
+          textFormat: Text.PlainText
           Layout.fillWidth: true
           visible: card.desc !== ""
           text: card.desc
@@ -73,6 +75,7 @@ Rectangle {
       }
 
       Text {
+        textFormat: Text.PlainText
         visible: card.arrowAngle >= 0
         text: "↑"
         color: card.foreground
@@ -87,6 +90,7 @@ Rectangle {
         Layout.alignment: Qt.AlignVCenter
 
         Text {
+          textFormat: Text.PlainText
           id: valText
           text: card.value
           color: card.foreground
@@ -96,6 +100,7 @@ Rectangle {
         }
 
         Text {
+          textFormat: Text.PlainText
           visible: card.unit !== ""
           text: card.unit
           color: card.dim

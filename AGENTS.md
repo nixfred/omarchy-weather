@@ -1,11 +1,11 @@
 # AGENTS.md
 
-Omarchy shell plugin (`service` + `bar-widget`). Replaces `omarchy.weather`
-via `omarchy.clonedFrom`.
+Omarchy shell plugin (`service` + `bar-widget`). Disable `omarchy.weather`
+when enabling this one so the bar has a single weather pill.
 
 ## Layout
 
-- `manifest.json` — contract, settings schema, `clonedFrom`
+- `manifest.json` — contract, settings schema
 - `BarWidget.qml` — bar pill; forwards panel contract; injects the service
 - `Panel.qml` — forecast tab + hosts `RadarPane.qml`
 - `RadarPane.qml` — RainViewer map, timeline, Open radar, alerts toggle

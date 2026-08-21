@@ -345,6 +345,7 @@ Item {
         }
 
         Text {
+          textFormat: Text.PlainText
           anchors.right: parent.right
           anchors.bottom: parent.bottom
           anchors.margins: Style.space(6)
@@ -381,6 +382,7 @@ Item {
         }
 
         Text {
+          textFormat: Text.PlainText
           anchors.centerIn: parent
           visible: !root.hasLocation || (root.frames.length === 0) || (!radarA.ready && !radarB.ready)
           text: root.hasLocation ? "Loading radar…" : "Set a location to centre radar"
@@ -429,6 +431,7 @@ Item {
       }
 
       Text {
+        textFormat: Text.PlainText
         id: frameTime
         anchors.right: parent.right
         anchors.rightMargin: Style.space(10)
@@ -448,6 +451,7 @@ Item {
       height: Style.spacing.controlHeight
 
       Text {
+        textFormat: Text.PlainText
         anchors.left: parent.left
         anchors.leftMargin: Style.space(12)
         anchors.verticalCenter: parent.verticalCenter
@@ -480,12 +484,14 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         spacing: 1
         Text {
+          textFormat: Text.PlainText
           text: "Storm alerts"
           color: root.bar ? root.bar.foreground : Color.foreground
           font.family: Style.font.family
           font.pixelSize: Style.font.body
         }
         Text {
+          textFormat: Text.PlainText
           text: {
             if (!root.alertsEnabled) return "off"
             if (!root.hasLocation) return "no location set"

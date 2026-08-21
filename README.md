@@ -28,9 +28,10 @@ stock weather contract. See [NOTICE.md](NOTICE.md).
 
 ### Bar pill
 
-Replaces the built-in weather icon in the centre of the bar (`clonedFrom:
-omarchy.weather`). The pill shows the current condition glyph for your
-**saved home** location, even while the panel is peeking at another city.
+Intended to stand in for the built-in weather icon in the centre of the
+bar (disable `omarchy.weather` so you only have one pill). The icon shows
+the current condition glyph for your **saved home** location, even while
+the panel is peeking at another city.
 
 | Input | Action |
 |-------|--------|
@@ -106,17 +107,14 @@ tool — use your national weather service for decisions that matter.
 
 ```sh
 omarchy plugin add https://github.com/calebhat/omarchy-weather.git --enable
-omarchy restart shell
-```
-
-`--enable` takes the built-in weather slot. If the stock pill is still
-visible:
-
-```sh
 omarchy plugin disable omarchy.weather
 omarchy bar move io.github.calebhat.weather --section center
 omarchy restart shell
 ```
+
+`--enable` adds this widget; disable the built-in `omarchy.weather` pill so
+you do not get two weather icons. Move this one to centre if it landed
+elsewhere.
 
 Do not enable this together with Weathering or Weather Radar in the same
 bar slot unless you want two weather pills. Disable those if you are

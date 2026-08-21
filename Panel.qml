@@ -763,6 +763,7 @@ KeyboardPanel {
               spacing: Style.space(16)
 
               Text {
+                textFormat: Text.PlainText
                 id: heroIcon
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.verticalCenterOffset: 5
@@ -777,6 +778,7 @@ KeyboardPanel {
                 spacing: Style.space(2)
 
                 Text {
+                  textFormat: Text.PlainText
                   id: tempBig
                   text: root.reportTempNum || "—"
                   color: root.bar.foreground
@@ -786,6 +788,7 @@ KeyboardPanel {
                 }
 
                 Text {
+                  textFormat: Text.PlainText
                   text: root.current ? root.tempUnit : ""
                   color: root.bar.foreground
                   font.family: root.bar.fontFamily
@@ -819,6 +822,7 @@ KeyboardPanel {
                     spacing: Style.space(6)
 
                     Text {
+                      textFormat: Text.PlainText
                       text: "\uf041"
                       color: root.dimText
                       font.family: root.bar.fontFamily
@@ -827,6 +831,7 @@ KeyboardPanel {
                     }
 
                     Text {
+                      textFormat: Text.PlainText
                       text: (root.reportLocation || "").toUpperCase()
                       color: root.dimText
                       font.family: root.bar.fontFamily
@@ -838,6 +843,7 @@ KeyboardPanel {
                 }
 
                 Text {
+                  textFormat: Text.PlainText
                   text: "\uf002"
                   color: root.dimText
                   font.family: root.bar.fontFamily
@@ -849,6 +855,7 @@ KeyboardPanel {
               }
 
               Text {
+                textFormat: Text.PlainText
                 visible: root.peeking && !root.editingLocation
                 text: "Back to " + root.homeName
                 color: root.bar.foreground
@@ -897,6 +904,7 @@ KeyboardPanel {
                   color: !root.savingLocation && clearLocationArea.containsMouse ? Style.hoverFillFor(root.bar.foreground, Color.accent) : "transparent"
 
                   Text {
+                    textFormat: Text.PlainText
                     anchors.centerIn: parent
                     text: root.savingLocation ? "󰦖" : "\u2715"
                     font.family: root.bar.fontFamily
@@ -934,6 +942,7 @@ KeyboardPanel {
                   visible: root.showFeelsLike
                   spacing: Style.space(5)
                   Text {
+                    textFormat: Text.PlainText
                     text: "FEELS"
                     color: root.dimText
                     font.family: root.bar.fontFamily
@@ -941,6 +950,7 @@ KeyboardPanel {
                     font.letterSpacing: root.capsLetterSpacing
                   }
                   Text {
+                    textFormat: Text.PlainText
                     text: root.reportFeels
                     color: root.bar.foreground
                     font.family: root.bar.fontFamily
@@ -951,6 +961,7 @@ KeyboardPanel {
                 Column {
                   spacing: Style.space(5)
                   Text {
+                    textFormat: Text.PlainText
                     text: "WIND"
                     color: root.dimText
                     font.family: root.bar.fontFamily
@@ -958,6 +969,7 @@ KeyboardPanel {
                     font.letterSpacing: root.capsLetterSpacing
                   }
                   Text {
+                    textFormat: Text.PlainText
                     text: root.reportWind
                     color: root.bar.foreground
                     font.family: root.bar.fontFamily
@@ -968,6 +980,7 @@ KeyboardPanel {
                 Column {
                   spacing: Style.space(5)
                   Text {
+                    textFormat: Text.PlainText
                     text: "PRECIP"
                     color: root.dimText
                     font.family: root.bar.fontFamily
@@ -975,6 +988,7 @@ KeyboardPanel {
                     font.letterSpacing: root.capsLetterSpacing
                   }
                   Text {
+                    textFormat: Text.PlainText
                     text: root.reportPrecip
                     color: root.bar.foreground
                     font.family: root.bar.fontFamily
@@ -1010,12 +1024,14 @@ KeyboardPanel {
                   spacing: Style.space(8)
 
                   Text {
+                    textFormat: Text.PlainText
                     text: modelData.name
                     color: index === root.suggestionIndex ? Style.hoverStateColor(root.bar.foreground, Color.accent) : root.bar.foreground
                     font.family: root.bar.fontFamily
                     font.pixelSize: Style.font.body
                   }
                   Text {
+                    textFormat: Text.PlainText
                     visible: text !== ""
                     text: modelData.description
                     color: root.dimText
@@ -1037,6 +1053,7 @@ KeyboardPanel {
           }
 
           Text {
+            textFormat: Text.PlainText
             visible: !root.current
             text: root.weatherUnavailable ? "Couldn't reach the weather service — will retry." : "Fetching forecast…"
             color: root.dimText
@@ -1070,6 +1087,7 @@ KeyboardPanel {
                     : "transparent"
 
                   Text {
+                    textFormat: Text.PlainText
                     id: tabLabel
                     anchors.centerIn: parent
                     text: modelData.label
@@ -1129,6 +1147,7 @@ KeyboardPanel {
                 spacing: Style.space(4)
 
                 Text {
+                  textFormat: Text.PlainText
                   anchors.verticalCenter: parent.verticalCenter
                   text: "󱃂"
                   color: root.dimText
@@ -1137,6 +1156,7 @@ KeyboardPanel {
                 }
 
                 Text {
+                  textFormat: Text.PlainText
                   anchors.verticalCenter: parent.verticalCenter
                   text: "Day MAX " + root.hourlyMax
                   color: root.dimText
@@ -1183,6 +1203,7 @@ KeyboardPanel {
                       spacing: Style.space(3)
 
                       Text {
+                        textFormat: Text.PlainText
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: index === 0 ? "NOW" : modelData.time
                         color: index === 0 ? root.bar.foreground : root.dimText
@@ -1191,6 +1212,7 @@ KeyboardPanel {
                         font.bold: index === 0
                       }
                       Text {
+                        textFormat: Text.PlainText
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: root.iconForOpenMeteoCode(modelData.code, modelData.night)
                         color: root.bar.foreground
@@ -1198,6 +1220,7 @@ KeyboardPanel {
                         font.pixelSize: Style.font.title
                       }
                       Text {
+                        textFormat: Text.PlainText
                         anchors.horizontalCenter: parent.horizontalCenter
                         // The NOW cell mirrors the hero's live reading (current
                         // block) so the two never disagree; the rest use the
@@ -1208,6 +1231,7 @@ KeyboardPanel {
                         font.pixelSize: Style.font.body
                       }
                       Text {
+                        textFormat: Text.PlainText
                         anchors.horizontalCenter: parent.horizontalCenter
                         visible: text !== ""
                         text: modelData.precipProb !== "" ? (modelData.precipProb + "%") : ""
@@ -1332,6 +1356,7 @@ KeyboardPanel {
                       spacing: Style.space(1)
 
                       Text {
+                        textFormat: Text.PlainText
                         Layout.fillWidth: true
                         text: "Air Quality"
                         color: root.bar.foreground
@@ -1341,6 +1366,7 @@ KeyboardPanel {
                       }
 
                       Text {
+                        textFormat: Text.PlainText
                         Layout.fillWidth: true
                         text: String(root.aq.aqi)
                         color: root.dimText
@@ -1350,6 +1376,7 @@ KeyboardPanel {
                       }
 
                       Text {
+                        textFormat: Text.PlainText
                         Layout.fillWidth: true
                         visible: text !== ""
                         text: (root.aq.pm25 !== "" ? "PM2.5 " + root.aq.pm25 + " · " : "") + (root.aq.pm10 !== "" ? "PM10 " + root.aq.pm10 : "")
@@ -1361,6 +1388,7 @@ KeyboardPanel {
                     }
 
                     Text {
+                      textFormat: Text.PlainText
                       Layout.alignment: Qt.AlignVCenter
                       text: root.aq.info ? root.aq.info.label : ""
                       color: root.bar.foreground
@@ -1396,6 +1424,7 @@ KeyboardPanel {
                       spacing: Style.space(1)
 
                       Text {
+                        textFormat: Text.PlainText
                         Layout.fillWidth: true
                         text: "Sun"
                         color: root.bar.foreground
@@ -1404,6 +1433,7 @@ KeyboardPanel {
                       }
 
                       Text {
+                        textFormat: Text.PlainText
                         Layout.fillWidth: true
                         text: "Rise " + root.reportSunrise
                         color: root.dimText
@@ -1412,6 +1442,7 @@ KeyboardPanel {
                       }
 
                       Text {
+                        textFormat: Text.PlainText
                         Layout.fillWidth: true
                         text: "Set " + root.reportSunset
                         color: root.dimText
@@ -1421,6 +1452,7 @@ KeyboardPanel {
                     }
 
                     Text {
+                      textFormat: Text.PlainText
                       text: root.iconForOpenMeteoCode(0, false)
                       color: root.bar.foreground
                       font.family: root.bar.fontFamily
@@ -1470,6 +1502,7 @@ KeyboardPanel {
                     spacing: Style.space(3)
 
                     Text {
+                      textFormat: Text.PlainText
                       anchors.horizontalCenter: parent.horizontalCenter
                       text: root.dayAbbr(modelData.date).toUpperCase()
                       color: modelData.isToday ? root.bar.foreground : root.dimText
@@ -1480,6 +1513,7 @@ KeyboardPanel {
                     }
 
                     Text {
+                      textFormat: Text.PlainText
                       anchors.horizontalCenter: parent.horizontalCenter
                       text: root.iconForOpenMeteoCode(modelData.code, false)
                       color: root.bar.foreground
@@ -1492,6 +1526,7 @@ KeyboardPanel {
                       spacing: Style.space(4)
 
                       Text {
+                        textFormat: Text.PlainText
                         text: root.bareTempForDay(modelData, "max")
                         color: root.bar.foreground
                         font.family: root.bar.fontFamily
@@ -1499,6 +1534,7 @@ KeyboardPanel {
                       }
 
                       Text {
+                        textFormat: Text.PlainText
                         text: root.bareTempForDay(modelData, "min")
                         color: root.dimText
                         font.family: root.bar.fontFamily

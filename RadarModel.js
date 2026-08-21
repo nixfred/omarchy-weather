@@ -84,11 +84,29 @@ function colorSchemeName(id) {
 
 // Standard XYZ tile, used by the pannable map.
 //   {host}{framePath}/{size}/{z}/{x}/{y}/{color}/{smooth}_{snow}.png
+function stripUrlQueryAndFragment(url) {
+  var text = String(url || "")
+  var end = text.length
+  var query = text.indexOf("?")
+  var hash = text.indexOf("#")
+  if (query !== -1 && query < end) end = query
+  if (hash !== -1 && hash < end) end = hash
+  return text.slice(0, end)
+}
+
+function hostnameFromHttpsUrl(url) {
+  var text = stripUrlQueryAndFragment(url)
+  if (text.indexOf("https://") !== 0) return ""
+  var rest = text.slice(8)
+  var slash = rest.indexOf("/")
+  var hostname = (slash === -1 ? rest : rest.slice(0, slash)).toLowerCase()
+  if (hostname === "" || hostname.indexOf("@") !== -1 || hostname.indexOf(":") !== -1) return ""
+  return hostname
+}
+
 function isRainViewerHttpsHost(host) {
-  var text = String(host || "")
-  if (text.indexOf("https://") !== 0) return false
-  var hostname = text.slice(8).split("/")[0].toLowerCase()
-  if (hostname.indexOf("@") !== -1 || hostname.indexOf(":") !== -1) return false
+  var hostname = hostnameFromHttpsUrl(host)
+  if (hostname === "") return false
   return hostname === "rainviewer.com" || hostname.slice(-15) === ".rainviewer.com"
 }
 
@@ -101,7 +119,8 @@ function isSafeRadarPath(path) {
 
 function tileUrl(host, framePath, size, zoom, x, y, colorScheme, smooth, snow) {
   if (!isRainViewerHttpsHost(host) || !isSafeRadarPath(framePath)) return ""
-  return host + framePath + "/" + size + "/" + zoom + "/" + x + "/" + y
+  var base = stripUrlQueryAndFragment(host)
+  return base + framePath + "/" + size + "/" + zoom + "/" + x + "/" + y
     + "/" + colorScheme + "/" + (smooth ? 1 : 0) + "_" + (snow ? 1 : 0) + ".png"
 }
 
@@ -111,8 +130,9 @@ function tileUrl(host, framePath, size, zoom, x, y, colorScheme, smooth, snow) {
 // location by construction, so no grid arithmetic can drift.
 function centeredTileUrl(host, framePath, size, zoom, lat, lon, colorScheme, smooth, snow) {
   if (!isRainViewerHttpsHost(host) || !isSafeRadarPath(framePath)) return ""
+  var base = stripUrlQueryAndFragment(host)
   // The API requires a decimal point in both coordinates.
-  return host + framePath + "/" + size + "/" + zoom + "/" + decimal(lat) + "/" + decimal(lon)
+  return base + framePath + "/" + size + "/" + zoom + "/" + decimal(lat) + "/" + decimal(lon)
     + "/" + colorScheme + "/" + (smooth ? 1 : 0) + "_" + (snow ? 1 : 0) + ".png"
 }
 
@@ -121,7 +141,8 @@ function centeredTileUrl(host, framePath, size, zoom, lat, lon, colorScheme, smo
 // empty map that reads as a bug.
 function coverageTileUrl(host, size, zoom, lat, lon) {
   if (!isRainViewerHttpsHost(host)) return ""
-  return host + "/v2/coverage/0/" + size + "/" + zoom + "/" + decimal(lat) + "/" + decimal(lon) + "/0/0_0.png"
+  var base = stripUrlQueryAndFragment(host)
+  return base + "/v2/coverage/0/" + size + "/" + zoom + "/" + decimal(lat) + "/" + decimal(lon) + "/0/0_0.png"
 }
 
 function decimal(value) {
@@ -149,6 +170,11 @@ function parseManifest(raw) {
   if (!data || typeof data.host !== "string" || !data.radar) return null
   if (!isRainViewerHttpsHost(data.host)) return null
 
+  var base = stripUrlQueryAndFragment(data.host)
+  while (base.length > 0 && base.charAt(base.length - 1) === "/")
+    base = base.slice(0, -1)
+  if (!isRainViewerHttpsHost(base)) return null
+
   var past = normalizeFrames(data.radar.past)
   if (past.length === 0) return null
 
@@ -157,7 +183,7 @@ function parseManifest(raw) {
   var nowcast = normalizeFrames(data.radar.nowcast)
 
   return {
-    host: data.host,
+    host: base,
     generated: Number(data.generated) || 0,
     past: past,
     nowcast: nowcast,

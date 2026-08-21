@@ -154,8 +154,5 @@
         "defaultValue": true
       }
     ]
-  },
-  "omarchy": {
-    "clonedFrom": "omarchy.weather"
   }
 }
