@@ -19,5 +19,5 @@ Do not restore `bar.run` with `$(…)` for notifications.
 
 Commit as `calebhat <97716470+calebhat@users.noreply.github.com>`.
 
-Marketplace listing: open or **edit** the existing `[Plugin]: Weather`
-issue on HANCORE-linux/omarchy-plugin-marketplace. Do not open a duplicate.
+Marketplace listing: [issue #1265](https://github.com/HANCORE-linux/omarchy-plugin-marketplace/issues/1265).
+Edit that issue to revalidate. Do not open a duplicate.
