@@ -360,8 +360,8 @@ Panel {
     }
     var lat = parseFloat(location.latitude)
     var lon = parseFloat(location.longitude)
-    if (!isFinite(lat) || !isFinite(lon)) return
-    peekLocation = { name: location.name, latitude: lat, longitude: lon }
+    if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return
+    peekLocation = { name: String(location.name || ""), latitude: lat, longitude: lon }
     report = null
     dailyForecastReport = null
     airQualityReport = null
@@ -425,13 +425,22 @@ Panel {
   }
 
   function persistLocation(name, latitude, longitude) {
-    if (name && latitude !== null && longitude !== null)
-      locationSaveProc.command = ["omarchy-weather-location", "--set", name, latitude + "," + longitude]
-    else if (name)
-      locationSaveProc.command = ["omarchy-weather-location", "--set", name]
+    var safeName = String(name || "").replace(/^\s+|\s+$/g, "").replace(/^-+/, "")
+    var lat = parseFloat(latitude)
+    var lon = parseFloat(longitude)
+    if (safeName && isFinite(lat) && isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180)
+      locationSaveProc.command = ["omarchy-weather-location", "--set", safeName, lat + "," + lon]
+    else if (safeName)
+      locationSaveProc.command = ["omarchy-weather-location", "--set", safeName]
     else
       locationSaveProc.command = ["omarchy-weather-location", "--clear"]
     locationSaveProc.running = true
+  }
+
+  function notifyCurrent() {
+    if (statusNotifyProc.running) statusNotifyProc.running = false
+    statusNotifyProc.command = ["omarchy-weather-status"]
+    statusNotifyProc.running = true
   }
 
   // Debounced geocoding. Only one curl runs at a time; if the query moved on
@@ -486,8 +495,24 @@ Panel {
   }
 
   Process {
+    id: statusNotifyProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var msg = String(text || "").trim()
+        if (!msg || msg.charAt(0) === "-") return
+        Quickshell.execDetached(["omarchy-notification-send", "-u", "low", msg])
+      }
+    }
+  }
+
+  Process {
     id: forecastProc
-    command: ["curl", "-fsS", "--max-time", "10", "https://wttr.in/" + root.locationQuery + "?format=j1"]
+    command: {
+      var q = String(root.locationQuery || "")
+      if (q.indexOf("://") !== -1 || q.indexOf("/") !== -1) q = ""
+      return ["curl", "-fsS", "--max-time", "10", "https://wttr.in/" + q + "?format=j1"]
+    }
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {

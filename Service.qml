@@ -617,6 +617,7 @@ Item {
     // window instead answers a question the reader did not ask: they have been
     // told it is going to rain, which is the whole point of telling them.
     // Anyone who wants the map opens it themselves.
+    if (headline.charAt(0) === "-" || description.charAt(0) === "-") return
     notifyProc.command = command.concat([headline, description])
     notifyProc.running = true
   }

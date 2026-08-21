@@ -82,9 +82,9 @@ BarWidget {
     tooltipText: ""
 
     onPressed: function(b) {
-      if (!root.bar) return
-      if (b === Qt.RightButton) root.bar.run("omarchy-notification-send \"$(omarchy-weather-status)\"")
-      else if (b === Qt.MiddleButton) root.refresh()
+      if (b === Qt.RightButton) {
+        if (panelLoader.item && panelLoader.item.notifyCurrent) panelLoader.item.notifyCurrent()
+      } else if (b === Qt.MiddleButton) root.refresh()
       else root.togglePanel()
     }
   }

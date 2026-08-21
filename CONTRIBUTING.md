@@ -15,5 +15,9 @@ location in `~/.local/state/omarchy/settings/weather.json` via
 
 Browser radar must stay an argv call to `omarchy-launch-browser` with an
 `https://www.rainviewer.com/map.html` URL built from numeric coordinates.
+Do not restore `bar.run` with `$(…)` for notifications.
 
 Commit as `calebhat <97716470+calebhat@users.noreply.github.com>`.
+
+Marketplace listing: open or **edit** the existing `[Plugin]: Weather`
+issue on HANCORE-linux/omarchy-plugin-marketplace. Do not open a duplicate.

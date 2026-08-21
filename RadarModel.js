@@ -84,8 +84,23 @@ function colorSchemeName(id) {
 
 // Standard XYZ tile, used by the pannable map.
 //   {host}{framePath}/{size}/{z}/{x}/{y}/{color}/{smooth}_{snow}.png
+function isRainViewerHttpsHost(host) {
+  var text = String(host || "")
+  if (text.indexOf("https://") !== 0) return false
+  var hostname = text.slice(8).split("/")[0].toLowerCase()
+  if (hostname.indexOf("@") !== -1 || hostname.indexOf(":") !== -1) return false
+  return hostname === "rainviewer.com" || hostname.slice(-15) === ".rainviewer.com"
+}
+
+function isSafeRadarPath(path) {
+  var text = String(path || "")
+  if (text.charAt(0) !== "/") return false
+  if (text.indexOf("://") !== -1 || text.indexOf("..") !== -1) return false
+  return true
+}
+
 function tileUrl(host, framePath, size, zoom, x, y, colorScheme, smooth, snow) {
-  if (!host || !framePath) return ""
+  if (!isRainViewerHttpsHost(host) || !isSafeRadarPath(framePath)) return ""
   return host + framePath + "/" + size + "/" + zoom + "/" + x + "/" + y
     + "/" + colorScheme + "/" + (smooth ? 1 : 0) + "_" + (snow ? 1 : 0) + ".png"
 }
@@ -95,7 +110,7 @@ function tileUrl(host, framePath, size, zoom, x, y, colorScheme, smooth, snow) {
 // case, and it is what the alert samples — the centre pixel is the user's
 // location by construction, so no grid arithmetic can drift.
 function centeredTileUrl(host, framePath, size, zoom, lat, lon, colorScheme, smooth, snow) {
-  if (!host || !framePath) return ""
+  if (!isRainViewerHttpsHost(host) || !isSafeRadarPath(framePath)) return ""
   // The API requires a decimal point in both coordinates.
   return host + framePath + "/" + size + "/" + zoom + "/" + decimal(lat) + "/" + decimal(lon)
     + "/" + colorScheme + "/" + (smooth ? 1 : 0) + "_" + (snow ? 1 : 0) + ".png"
@@ -105,7 +120,7 @@ function centeredTileUrl(host, framePath, size, zoom, lat, lon, colorScheme, smo
 // does not. Lets the plugin say "no radar covers you" instead of showing an
 // empty map that reads as a bug.
 function coverageTileUrl(host, size, zoom, lat, lon) {
-  if (!host) return ""
+  if (!isRainViewerHttpsHost(host)) return ""
   return host + "/v2/coverage/0/" + size + "/" + zoom + "/" + decimal(lat) + "/" + decimal(lon) + "/0/0_0.png"
 }
 
@@ -132,6 +147,7 @@ function parseManifest(raw) {
     return null
   }
   if (!data || typeof data.host !== "string" || !data.radar) return null
+  if (!isRainViewerHttpsHost(data.host)) return null
 
   var past = normalizeFrames(data.radar.past)
   if (past.length === 0) return null
