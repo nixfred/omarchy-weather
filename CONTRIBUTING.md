@@ -1,6 +1,7 @@
 # Contributing
 
 Source of truth: this repository, installed as a normal Omarchy plugin.
+Display name is **Detailed Weather**; plugin id is `io.github.calebhat.weather`.
 
 ```bash
 omarchy plugin add https://github.com/calebhat/omarchy-weather.git --enable

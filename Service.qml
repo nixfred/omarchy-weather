@@ -3,31 +3,16 @@ import Quickshell
 import Quickshell.Io
 import "RadarModel.js" as RadarModel
 
-// Headless singleton behind the radar plugin.
+// Headless singleton behind Detailed Weather.
 //
-// A bar widget is instantiated once per monitor, so anything that polls has to
-// live here instead: the shell mounts exactly one service per plugin, which
-// keeps a two-monitor setup from doubling every request.
+// A bar widget is instantiated once per monitor, so polling lives here: the
+// shell mounts exactly one service per plugin, which keeps a two-monitor
+// setup from doubling every request.
 //
-// Two responsibilities:
-//
-//   1. Own the RainViewer frame manifest, so that a two-monitor setup showing
-//      the map on both shares one copy instead of fetching one each. It is 818
-//      bytes, and is fetched only while the map is open. The property is
-//      `radarManifest` rather than the obvious `manifest` because the shell
-//      assigns the plugin's own manifest.json to any service exposing a
-//      property by that name.
-//
-//   2. Decide whether to warn about approaching weather, and say so once.
-//
-// On (2), a note on why the alert reads a point forecast rather than the radar
-// image it draws. Distance alone does not mean approaching — a cell 80 km east
-// travelling east is not your problem — so a radar-echo alert would have to
-// derive motion vectors across frames to avoid crying wolf. The question the
-// user is actually asking is "will weather hit me, and how bad", and a point
-// forecast answers exactly that, including the instability indices that
-// separate ordinary rain from a severe storm. Radar remains the better picture;
-// the forecast is the better trigger.
+// Optional storm alerts: a point forecast around home, once per session
+// until conditions worsen or clear. A radar echo 80 km east travelling
+// east is not your problem; the question is "will weather hit me, and
+// how bad", which Open-Meteo answers including instability indices.
 Item {
   id: root
 
@@ -57,8 +42,6 @@ Item {
 
   // Storms in most of the world travel somewhere around 50 km/h, so the alert
   // radius doubles as a lead time: 100 km is roughly two hours of warning.
-  // Expressing it this way means one setting controls both the ring drawn on
-  // the map and how far ahead the forecast is inspected.
   readonly property real assumedStormSpeedKmh: 50
   readonly property int leadMinutes: Math.round(alertRadiusKm / assumedStormSpeedKmh * 60)
   readonly property int forecastSlots: Math.max(4, Math.min(24, Math.ceil(leadMinutes / 15)))
@@ -68,7 +51,7 @@ Item {
   // ---------------------------------------------------------------------------
 
   // Shared with the stock weather widget, which owns the file. Watching it
-  // means changing city through the Omarchy menu re-centres the radar live.
+  // means changing city through the Omarchy menu updates home for alerts too.
   //
   // The watch only reaches as far as the containing directory. On a machine
   // where no weather location was ever set, `~/.local/state/omarchy/settings/`
@@ -503,7 +486,7 @@ Item {
     var persistent = level >= 3
     var command = [
       "omarchy-notification-send",
-      "--app-name", "Weather",
+      "--app-name", "Detailed Weather",
       // The same glyph the bar widget wears, so the toast is recognisably
       // from this plugin before a word of it is read.
       "-g", RadarModel.GLYPH,
@@ -514,7 +497,7 @@ Item {
     // this, go away" to almost everyone, and taking that gesture to open a
     // window instead answers a question the reader did not ask: they have been
     // told it is going to rain, which is the whole point of telling them.
-    // Anyone who wants the map opens it themselves.
+    // Anyone who wants radar uses Open radar.
     if (headline.charAt(0) === "-" || description.charAt(0) === "-") return
     notifyProc.command = command.concat([headline, description])
     notifyProc.running = true
@@ -546,24 +529,11 @@ Item {
   // Scheduling
   // ---------------------------------------------------------------------------
 
-  // RainViewer publishes a frame every ten minutes and the forecast model
-  // updates no faster, so this is both the floor and the natural cadence.
+  // Open-Meteo 15-minute slots do not need a tighter poll than ten minutes.
   // Backing off on repeated failure keeps a network outage from turning into a
   // tight retry loop inside a process that lives all day.
-  readonly property int baseIntervalMs: RadarModel.FRAME_INTERVAL_SEC * 1000
+  readonly property int baseIntervalMs: RadarModel.ALERT_INTERVAL_SEC * 1000
   readonly property int backoffMultiplier: Math.min(6, Math.pow(2, Math.min(consecutiveFailures, 3)))
-
-  // Two things want this cadence, and either one on its own is reason enough to
-  // run: the alert check, which needs a location, and the map, which needs to
-  // be open.
-  //
-  // The backoff belongs to the alert check alone, because only the forecast can
-  // raise it, and it stands down while the map is open. Nothing about
-  // api.open-meteo.com refusing — a rate limit, a bad DNS answer, an outage of
-  // that one host — says anything about RainViewer, and stretching the map's
-  // cadence to an hour on that evidence would freeze the picture in front of
-  // someone who is watching it. With nobody watching, an hour between attempts
-  // is the right courtesy to a service having a bad day.
   Timer {
     id: pollTimer
     readonly property bool alerting: root.alertsEnabled && root.hasLocation

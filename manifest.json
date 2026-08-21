@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "id": "io.github.calebhat.weather",
-  "name": "Weather",
-  "version": "1.1.0",
+  "name": "Detailed Weather",
+  "version": "1.2.0",
   "author": "calebhat",
   "license": "MIT",
-  "description": "Replaces the Omarchy weather pill with today's hourly forecast, a ten-day outlook, and a saved radar site that opens in your default browser.",
+  "description": "Replaces the Omarchy weather pill with today's remaining-hour forecast, a ten-day outlook, city peek, and Open radar in the default browser.",
   "homepage": "https://github.com/calebhat/omarchy-weather",
   "kinds": [
     "service",
@@ -16,8 +16,8 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Weather",
-    "description": "Weather pill with hourly and ten-day forecast, plus Open radar in the browser.",
+    "displayName": "Detailed Weather",
+    "description": "Hourly remaining-day forecast, ten-day outlook, city peek, and Open radar in the browser.",
     "category": "Info",
     "allowMultiple": false,
     "defaultSection": "center",

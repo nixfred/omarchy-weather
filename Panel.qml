@@ -483,7 +483,7 @@ Panel {
   function notifyCurrent() {
     var loc = String(root.reportLocation || "").replace(/\s+/g, " ").trim()
     var temp = root.reportTempNum !== "" ? (root.reportTempNum + root.tempUnit) : ""
-    var headline = loc !== "" ? loc : "Weather"
+    var headline = loc !== "" ? loc : "Detailed Weather"
     var description = temp
     if (root.reportWind) description += (description ? " · " : "") + "Wind " + root.reportWind
     if (root.reportPrecip) description += (description ? " · " : "") + "Precip " + root.reportPrecip

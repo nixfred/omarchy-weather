@@ -1,7 +1,9 @@
 # AGENTS.md
 
-Omarchy shell plugin (`service` + `bar-widget`). Disable `omarchy.weather`
-when enabling this one so the bar has a single weather pill.
+Omarchy shell plugin (`service` + `bar-widget`). Display name:
+**Detailed Weather**. Plugin id stays `io.github.calebhat.weather`.
+Disable `omarchy.weather` when enabling this one so the bar has a
+single weather pill.
 
 ## Layout
 
@@ -11,7 +13,6 @@ when enabling this one so the bar has a single weather pill.
 - `Service.qml` — optional storm alerts (one per session)
 - `Model.js` — forecast parsing (Open-Meteo / wttr)
 - `RadarModel.js` — saved radar website URLs; alert helpers
-- `TileMath.js` — used by alert sampling
 
 There is no in-panel radar map.
 

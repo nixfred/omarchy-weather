@@ -1,12 +1,15 @@
-# Weather
+# Detailed Weather
 
 A single Omarchy bar pill that **replaces** the built-in `omarchy.weather`
-widget. Click it for today's hourly forecast and a ten-day outlook.
+widget. Click it for today's remaining-hour forecast and a ten-day outlook.
 **Open radar** launches a saved radar website in your default browser.
+
+Named to sit next to stock Weather, Weathering, and Weather Radar without
+colliding. Plugin id stays `io.github.calebhat.weather`.
 
 No API key. Location is the same file Omarchy already uses.
 
-<p align="center"><img src="preview.png" alt="Weather panel" width="520"></p>
+<p align="center"><img src="preview.png" alt="Detailed Weather panel" width="520"></p>
 
 ## Why this exists
 
@@ -63,9 +66,9 @@ Optional `{lat}` and `{lon}` are filled from the city you are viewing.
 
 ### Settings
 
-**Settings** (always at the top of the panel) opens units, 12- or 24-hour
-clocks, the radar website, and storm alerts. The same control reads **Done**
-to return to the forecast. Home location stays the pin on the forecast.
+**Settings** (top-right on the forecast) opens units, 12- or 24-hour clocks,
+the radar website, and storm alerts. **Done** (top-left on Settings) returns
+to the forecast. Home location stays the pin on the forecast.
 
 ### Home location
 
@@ -95,8 +98,8 @@ home.
 
 Optional. When on, a background check looks at the forecast around **home**
 (not a peek) and notifies if rain or a storm is expected inside the alert
-radius. Toggle from the radar tab or widget settings. Not a life-safety
-tool — use your national weather service for decisions that matter.
+radius. Toggle from Settings. Not a life-safety tool — use your national
+weather service for decisions that matter.
 
 ## Install
 
@@ -131,12 +134,11 @@ the bar settings form). `shell.json` hot-reloads on save.
 | `showAirQuality` | `true` | US AQI cell |
 | `showFeelsLike` | `true` | Feels-like in the header |
 | `alertsEnabled` | `false` | Storm alerts for home |
-| `alertRadiusKm` | `100` | How far ahead to watch |
+| `alertRadiusKm` | `100` | How far around home to sample |
 | `alertMinIntensity` | `Heavy` | `Light` / `Moderate` / `Heavy` / `Severe` |
-| `colorScheme` | `TITAN` | RainViewer palette |
-| `defaultZoom` | `7` | Map open zoom (radar data stops at 7; the basemap can go further) |
-| `smoothTiles` | `true` | Blend radar pixels |
-| `showSnow` | `true` | Colour snow separately from rain |
+| `radarSite` | `RainViewer` | Website Open radar launches |
+| `radarUrl` | (empty) | Custom https URL when `radarSite` is Custom |
+| `timeFormat` | `24` | `12` or `24` hour clocks |
 
 ## Remove
 
@@ -173,6 +175,10 @@ Plugins run unsandboxed inside `omarchy-shell`. This one:
 Right-click on the pill sends a notification built from this panel's current
 reading.
 
-## License
+## License and external dependencies
 
 MIT — [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md).
+
+No extra packages, pip, or sudo. Runtime network only: Open-Meteo, wttr.in,
+and the user-chosen radar website (opened in the default browser). Location
+is written through `omarchy-weather-location`.

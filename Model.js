@@ -32,9 +32,7 @@ function isoLocalToEpoch(iso, offsetSec) {
   return Math.floor(utcGuess / 1000) - off
 }
 
-// Upcoming 15-minute precipitation at this location (Open-Meteo). Used as
-// the future half of the radar timeline because RainViewer's public API
-// stopped publishing nowcast tiles on 2026-01-01.
+// Upcoming 15-minute precipitation at this location (Open-Meteo).
 function minutelyPrecipForecast(report, horizonSec) {
   var m = report && report.minutely_15
   if (!m || !m.time) return []
