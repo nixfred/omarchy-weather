@@ -97,7 +97,7 @@ Panel {
     forecastRetryTimer.stop()
     dailyForecastRetryTimer.stop()
     airQualityRetryTimer.stop()
-    Qt.callLater(refresh)
+    scheduleRefresh()
   }
 
   property FileView locationFile: FileView {
@@ -248,6 +248,16 @@ Panel {
   readonly property string hourlyMax: Model.hourlyMaxTemp(hourly, useImperial)
 
 
+  // A direct function reference keeps evaluating after a hot reload has begun
+  // tearing this panel down. Guard both methods at execution time so a queued
+  // refresh from the old instance becomes a no-op instead of calling into its
+  // partially destroyed QML context.
+  function scheduleRefresh() {
+    Qt.callLater(function() {
+      if (root && root.refresh && root.refreshDailyForecast) root.refresh()
+    })
+  }
+
   function refresh() {
     forecastRetries = 0
     dailyForecastRetries = 0
@@ -375,7 +385,7 @@ Panel {
     forecastProc.running = false
     dailyForecastProc.running = false
     airQualityProc.running = false
-    Qt.callLater(refresh)
+    scheduleRefresh()
   }
 
   function applyPeek(location) {
@@ -757,7 +767,7 @@ Panel {
         forecastProc.running = false
         dailyForecastProc.running = false
         airQualityProc.running = false
-        Qt.callLater(root.refresh)
+        root.scheduleRefresh()
       }
     }
   }
