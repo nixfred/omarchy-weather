@@ -54,8 +54,10 @@ Panel {
     setCenterHoverRevealSuppressed(false)
     carouselEntrance.stop()
     carouselSnap.stop()
+    carouselLeanReset.stop()
     carouselDragging = false
     carouselSettling = false
+    carouselLean = 0
     if (root.editingLocation) root.cancelEditingLocation()
     root.mainView = "forecast"
     root.controller.hide()
@@ -233,6 +235,9 @@ Panel {
   property real carouselLift: 1
   property real carouselDetailReveal: 1
   property real carouselLastInteractionMs: Date.now()
+  property real carouselLean: 0
+  property real weatherAmbientPhase: 0
+  property real weatherWavePhase: 0
   readonly property real carouselFocusAngle: 90
   readonly property int carouselCount: daily.length
   readonly property real carouselStep: carouselCount > 0 ? 360 / carouselCount : 36
@@ -242,6 +247,8 @@ Panel {
   readonly property var carouselUv: carouselDay && carouselDay.uv !== null && isFinite(carouselDay.uv)
     ? Model.uvInfo(carouselDay.uv)
     : null
+  readonly property bool carouselStorm: carouselDay ? isStormCode(carouselDay.code) : false
+  property color weatherAccent: weatherAccentForCode(carouselDay ? carouselDay.code : -1)
   readonly property var airQuality: Model.aqiSummary(airQualityReport)
   readonly property bool hasAirQuality: airQuality !== null
   // Safe alias: bindings evaluate even when the AQI section is hidden, so the
@@ -287,6 +294,35 @@ Panel {
     return ((value % modulus) + modulus) % modulus
   }
 
+  function isStormCode(code) {
+    var value = Number(code)
+    return isFinite(value) && value >= 95
+  }
+
+  // Keep the shell theme as the base, then tint it toward a recognizable
+  // condition family. These colors only appear at low opacity, so the panel
+  // stays at home in custom themes instead of becoming a fixed blue weather UI.
+  function weatherAccentForCode(code) {
+    var value = Number(code)
+    if (!isFinite(value) || value < 0) return Color.accent
+    if (value >= 95) return Qt.tint(Color.urgent, Qt.rgba(0.58, 0.25, 0.90, 0.28))
+    if ((value >= 71 && value <= 86) || value === 66 || value === 67)
+      return Qt.tint(Color.accent, Qt.rgba(0.72, 0.90, 1.0, 0.68))
+    if ((value >= 51 && value <= 67) || (value >= 80 && value <= 82))
+      return Qt.tint(Color.accent, Qt.rgba(0.22, 0.58, 0.96, 0.62))
+    if (value === 45 || value === 48)
+      return Qt.tint(Color.muted, Qt.rgba(0.72, 0.76, 0.82, 0.42))
+    if (value === 0)
+      return Qt.tint(Color.accent, Qt.rgba(1.0, 0.72, 0.22, 0.58))
+    if (value <= 3)
+      return Qt.tint(Color.accent, Qt.rgba(0.54, 0.72, 0.92, 0.30))
+    return Color.accent
+  }
+
+  Behavior on weatherAccent {
+    ColorAnimation { duration: 720; easing.type: Easing.OutCubic }
+  }
+
   function selectedIndexForAngle(angle) {
     if (carouselCount < 1) return 0
     return positiveModulo(Math.round((carouselFocusAngle - angle) / carouselStep), carouselCount)
@@ -329,15 +365,20 @@ Panel {
   function stepCarousel(direction) {
     if (carouselCount < 2 || carouselDragging) return
     carouselLastInteractionMs = Date.now()
+    carouselLeanReset.stop()
+    carouselLean = Math.max(-9, Math.min(9, -direction * 7))
+    carouselLeanReset.restart()
     var currentTurn = Math.round((carouselFocusAngle - carouselAngle) / carouselStep)
     settleCarousel(currentTurn + direction)
   }
 
   function resetCarousel(playEntrance) {
     carouselSnap.stop()
+    carouselLeanReset.stop()
     carouselDragging = false
     carouselSettling = false
     carouselVelocity = 0
+    carouselLean = 0
     carouselHoverIndex = -1
     carouselSelectedIndex = 0
     carouselDetailIndex = 0
@@ -392,6 +433,32 @@ Panel {
     to: 1
     duration: 240
     easing.type: Easing.OutCubic
+  }
+
+  NumberAnimation {
+    id: carouselLeanReset
+    target: root
+    property: "carouselLean"
+    to: 0
+    duration: 520
+    easing.type: Easing.OutBack
+    easing.overshoot: 1.08
+  }
+
+  NumberAnimation on weatherAmbientPhase {
+    from: 0
+    to: Math.PI * 2
+    duration: 24000
+    loops: Animation.Infinite
+    running: root.opened && root.mainView === "forecast"
+  }
+
+  NumberAnimation on weatherWavePhase {
+    from: 0
+    to: Math.PI * 2
+    duration: 2600
+    loops: Animation.Infinite
+    running: root.opened && root.mainView === "forecast"
   }
 
   SequentialAnimation {
@@ -1178,7 +1245,7 @@ KeyboardPanel {
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.verticalCenterOffset: 5
                 text: root.label || "—"
-                color: root.bar.foreground
+                color: root.weatherAccent
                 font.family: root.bar.fontFamily
                 font.pixelSize: 64
               }
@@ -1497,14 +1564,28 @@ KeyboardPanel {
             }
           }
 
-          Text {
-            textFormat: Text.PlainText
+          Row {
             visible: root.mainView === "forecast" && !root.current
-            text: root.weatherUnavailable ? "Couldn't reach the weather service — will retry." : "Fetching forecast…"
-            color: root.dimText
-            font.family: root.bar.fontFamily
-            font.pixelSize: Style.font.bodySmall
-            font.italic: true
+            spacing: Style.space(7)
+
+            MorphingWeatherLoader {
+              width: Style.space(22)
+              height: Style.space(22)
+              anchors.verticalCenter: parent.verticalCenter
+              accentColor: root.weatherAccent
+              running: !root.weatherUnavailable
+              visible: running
+            }
+
+            Text {
+              textFormat: Text.PlainText
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.weatherUnavailable ? "Couldn't reach the weather service — will retry." : "Fetching forecast…"
+              color: root.dimText
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              font.italic: true
+            }
           }
 
           // ---- FORECAST ORBIT -----------------------------------------------
@@ -1549,6 +1630,48 @@ KeyboardPanel {
               transformOrigin: Item.Center
               clip: false
 
+              // Condition-colored atmosphere: two nearly transparent fields
+              // drift out of phase while a huge ghost glyph moves behind the
+              // orbit. Low alpha keeps this legible in both dark and light
+              // themes, and changing days crossfades the entire mood.
+              Rectangle {
+                anchors.centerIn: parent
+                anchors.horizontalCenterOffset: Math.cos(root.weatherAmbientPhase) * Style.space(118)
+                anchors.verticalCenterOffset: Math.sin(root.weatherAmbientPhase * 0.73) * Style.space(42)
+                z: -8
+                width: Style.space(250)
+                height: width
+                radius: width / 2
+                color: Util.alpha(root.weatherAccent, 0.035)
+                scale: 0.94 + Math.sin(root.weatherAmbientPhase * 1.4) * 0.06
+              }
+
+              Rectangle {
+                anchors.centerIn: parent
+                anchors.horizontalCenterOffset: Math.cos(root.weatherAmbientPhase + Math.PI) * Style.space(138)
+                anchors.verticalCenterOffset: Math.sin(root.weatherAmbientPhase * 0.61 + 1.2) * Style.space(54)
+                z: -8
+                width: Style.space(192)
+                height: width
+                radius: width / 2
+                color: Util.alpha(root.weatherAccent, 0.024)
+              }
+
+              Text {
+                textFormat: Text.PlainText
+                anchors.centerIn: parent
+                anchors.horizontalCenterOffset: Math.cos(root.weatherAmbientPhase * 0.52) * Style.space(18)
+                anchors.verticalCenterOffset: Math.sin(root.weatherAmbientPhase * 0.68) * Style.space(11)
+                z: -7
+                text: root.carouselDay ? root.iconForOpenMeteoCode(root.carouselDay.code, false) : ""
+                color: root.weatherAccent
+                opacity: 0.035
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.space(176)
+                rotation: Math.sin(root.weatherAmbientPhase * 0.44) * 2.2
+                scale: 0.96 + Math.sin(root.weatherAmbientPhase * 0.83) * 0.035
+              }
+
               // Soft concentric halos give the center card some depth without
               // depending on a theme-specific shadow or external effect.
               Rectangle {
@@ -1559,8 +1682,28 @@ KeyboardPanel {
                 radius: width / 2
                 color: "transparent"
                 border.width: Math.max(1, Style.space(1))
-                border.color: Util.alpha(Color.accent, 0.10)
+                border.color: Util.alpha(root.weatherAccent, 0.15)
                 scale: 1.0 + 0.025 * Math.sin(root.carouselAngle * Math.PI / 180)
+              }
+
+              Rectangle {
+                anchors.centerIn: parent
+                z: 115
+                width: Style.space(224)
+                height: Style.space(132)
+                radius: Math.min(Style.space(25), Style.cornerRadius * 2.2)
+                color: "transparent"
+                border.width: Math.max(1, Style.space(2))
+                border.color: Color.urgent
+                opacity: root.carouselStorm
+                  ? 0.30 + (Math.sin(root.weatherAmbientPhase * 3) + 1) * 0.18
+                  : 0
+                scale: root.carouselStorm
+                  ? 1.0 + (Math.sin(root.weatherAmbientPhase * 3) + 1) * 0.025
+                  : 0.96
+
+                Behavior on opacity { NumberAnimation { duration: 300 } }
+                Behavior on scale { NumberAnimation { duration: 360; easing.type: Easing.OutBack } }
               }
 
               Rectangle {
@@ -1569,9 +1712,9 @@ KeyboardPanel {
                 width: Style.space(214)
                 height: Style.space(122)
                 radius: Math.min(Style.space(22), Style.cornerRadius * 2)
-                color: Util.alpha(root.bar.foreground, 0.045)
+                color: Util.alpha(root.weatherAccent, 0.075)
                 border.width: Math.max(1, Style.space(1))
-                border.color: Util.alpha(Color.accent, 0.35)
+                border.color: Util.alpha(root.carouselStorm ? Color.urgent : root.weatherAccent, 0.62)
                 opacity: root.carouselDetailReveal
                 scale: 0.94 + root.carouselDetailReveal * 0.06
 
@@ -1612,7 +1755,7 @@ KeyboardPanel {
                       textFormat: Text.PlainText
                       anchors.verticalCenter: parent.verticalCenter
                       text: root.carouselDay ? root.iconForOpenMeteoCode(root.carouselDay.code, false) : ""
-                      color: root.bar.foreground
+                      color: root.carouselStorm ? Color.urgent : root.weatherAccent
                       font.family: root.bar.fontFamily
                       font.pixelSize: Style.font.display
                     }
@@ -1655,7 +1798,7 @@ KeyboardPanel {
                   ctx.reset()
                   ctx.beginPath()
                   ctx.ellipse(width / 2, height / 2, width * 0.405, Style.space(94), 0, 0, Math.PI * 2)
-                  ctx.strokeStyle = Util.alpha(Color.accent, 0.34).toString()
+                  ctx.strokeStyle = Util.alpha(root.weatherAccent, 0.42).toString()
                   ctx.lineWidth = Math.max(1, Style.space(1))
                   ctx.setLineDash([Style.space(3), Style.space(8)])
                   ctx.stroke()
@@ -1663,6 +1806,11 @@ KeyboardPanel {
 
                 onWidthChanged: requestPaint()
                 onHeightChanged: requestPaint()
+
+                Connections {
+                  target: root
+                  function onWeatherAccentChanged() { carouselTrack.requestPaint() }
+                }
               }
 
               Repeater {
@@ -1678,6 +1826,8 @@ KeyboardPanel {
                   readonly property real depth: (Math.sin(radians) + 1) / 2
                   readonly property bool selected: index === root.carouselSelectedIndex
                   readonly property bool hovered: index === root.carouselHoverIndex
+                  readonly property bool storm: root.isStormCode(modelData.code)
+                  readonly property color dayAccent: root.weatherAccentForCode(modelData.code)
                   readonly property real baseScale: 0.62 + depth * 0.40
 
                   width: Style.space(64)
@@ -1691,12 +1841,20 @@ KeyboardPanel {
                   opacity: selected ? 1 : 0.34 + depth * 0.58
                   scale: baseScale * (selected ? 1.14 : (hovered ? 1.07 : 1))
 
-                  transform: Rotation {
-                    origin.x: orbitCard.width / 2
-                    origin.y: orbitCard.height / 2
-                    axis { x: 0; y: 1; z: 0 }
-                    angle: -Math.cos(orbitCard.radians) * 16
-                  }
+                  transform: [
+                    Rotation {
+                      origin.x: orbitCard.width / 2
+                      origin.y: orbitCard.height / 2
+                      axis { x: 0; y: 1; z: 0 }
+                      angle: -Math.cos(orbitCard.radians) * 16
+                    },
+                    Rotation {
+                      origin.x: orbitCard.width / 2
+                      origin.y: orbitCard.height / 2
+                      axis { x: 0; y: 0; z: 1 }
+                      angle: root.carouselLean * (0.52 + orbitCard.depth * 0.48)
+                    }
+                  ]
 
                   Behavior on scale {
                     NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
@@ -1708,8 +1866,9 @@ KeyboardPanel {
                     radius: Math.min(Style.space(14), Style.cornerRadius * 1.5)
                     color: "transparent"
                     border.width: Math.max(1, Style.space(1))
-                    border.color: Util.alpha(Color.accent, orbitCard.selected ? 0.42 : 0)
-                    opacity: orbitCard.selected ? 1 : 0
+                    border.color: Util.alpha(orbitCard.storm ? Color.urgent : orbitCard.dayAccent,
+                      orbitCard.selected ? 0.64 : (orbitCard.storm ? 0.28 : 0))
+                    opacity: orbitCard.selected || orbitCard.storm ? 1 : 0
 
                     SequentialAnimation on scale {
                       running: orbitCard.selected && root.opened && !root.carouselDragging
@@ -1723,12 +1882,16 @@ KeyboardPanel {
                     anchors.fill: parent
                     radius: Math.min(Style.space(10), Style.cornerRadius)
                     color: orbitCard.selected
-                      ? Util.alpha(Color.accent, 0.24)
-                      : (orbitCard.hovered ? Util.alpha(root.bar.foreground, 0.10) : Util.alpha(root.bar.foreground, 0.055))
+                      ? Util.alpha(orbitCard.dayAccent, 0.26)
+                      : (orbitCard.storm
+                        ? Util.alpha(Color.urgent, orbitCard.hovered ? 0.16 : 0.10)
+                        : (orbitCard.hovered ? Util.alpha(root.bar.foreground, 0.10) : Util.alpha(root.bar.foreground, 0.055)))
                     border.width: Math.max(1, Style.space(1))
                     border.color: orbitCard.selected
-                      ? Util.alpha(Color.accent, 0.9)
-                      : Util.alpha(root.bar.foreground, orbitCard.hovered ? 0.22 : 0.09)
+                      ? Util.alpha(orbitCard.storm ? Color.urgent : orbitCard.dayAccent, 0.94)
+                      : (orbitCard.storm
+                        ? Util.alpha(Color.urgent, 0.55)
+                        : Util.alpha(root.bar.foreground, orbitCard.hovered ? 0.22 : 0.09))
 
                     Behavior on color { ColorAnimation { duration: 150 } }
                     Behavior on border.color { ColorAnimation { duration: 150 } }
@@ -1754,7 +1917,7 @@ KeyboardPanel {
                         width: parent.width
                         horizontalAlignment: Text.AlignHCenter
                         text: root.iconForOpenMeteoCode(orbitCard.modelData.code, false)
-                        color: root.bar.foreground
+                        color: orbitCard.storm ? Color.urgent : orbitCard.dayAccent
                         font.family: root.bar.fontFamily
                         font.pixelSize: Style.font.title
                       }
@@ -1826,12 +1989,15 @@ KeyboardPanel {
                   root.carouselAngle += dx * 0.42
                   var instantVelocity = dx * 0.42 / elapsed
                   root.carouselVelocity = root.carouselVelocity * 0.68 + instantVelocity * 0.32
+                  carouselLeanReset.stop()
+                  root.carouselLean = Math.max(-11, Math.min(11, dx * 0.9))
                   root.carouselDragDistance += Math.abs(dx)
                   root.carouselLastX = mouse.x
                   root.carouselLastMs = now
                 }
                 onReleased: function(mouse) {
                   root.carouselDragging = false
+                  carouselLeanReset.restart()
                   if (!containsMouse) root.carouselPointerInside = false
 
                   if (root.carouselDragDistance < Style.space(7)) {
@@ -1846,6 +2012,7 @@ KeyboardPanel {
                 }
                 onCanceled: {
                   root.carouselDragging = false
+                  carouselLeanReset.restart()
                   root.focusCarouselDay(root.carouselSelectedIndex)
                 }
                 onWheel: function(wheel) {
@@ -1865,22 +2032,85 @@ KeyboardPanel {
 
               Repeater {
                 model: root.carouselDay ? [
-                  { label: "RAIN", value: root.carouselDay.precipProb !== "" ? root.carouselDay.precipProb + "%" : "—" },
-                  { label: "UV", value: root.carouselUv ? root.carouselUv.label : "—" },
-                  { label: "SUNRISE", value: root.carouselDay.sunrise ? Model.formatClock(root.carouselDay.sunrise, root.use12Hour) : "—" },
-                  { label: "SUNSET", value: root.carouselDay.sunset ? Model.formatClock(root.carouselDay.sunset, root.use12Hour) : "—" }
+                  {
+                    label: "RAIN",
+                    value: root.carouselDay.precipProb !== "" && isFinite(Number(root.carouselDay.precipProb))
+                      ? root.carouselDay.precipProb + "%"
+                      : "—",
+                    kind: "liquid",
+                    level: root.carouselDay.precipProb !== "" && isFinite(Number(root.carouselDay.precipProb))
+                      ? Number(root.carouselDay.precipProb) / 100
+                      : -1
+                  },
+                  { label: "UV", value: root.carouselUv ? root.carouselUv.label : "—", kind: "text", level: -1 },
+                  { label: "SUNRISE", value: root.carouselDay.sunrise ? Model.formatClock(root.carouselDay.sunrise, root.use12Hour) : "—", kind: "text", level: -1 },
+                  { label: "SUNSET", value: root.carouselDay.sunset ? Model.formatClock(root.carouselDay.sunset, root.use12Hour) : "—", kind: "text", level: -1 }
                 ] : []
 
                 Rectangle {
+                  id: orbitDetailCell
                   required property var modelData
+                  property real animatedLevel: modelData.kind === "liquid"
+                    ? Math.max(0, Math.min(1, Number(modelData.level)))
+                    : 0
                   width: (carouselSection.width - Style.space(18)) / 4
                   height: Style.space(46)
                   radius: Math.min(Style.space(8), Style.cornerRadius)
                   color: Util.alpha(root.bar.foreground, 0.045)
                   border.width: Math.max(1, Style.space(1))
                   border.color: Util.alpha(root.bar.foreground, 0.07)
+                  clip: true
+
+                  Behavior on animatedLevel {
+                    NumberAnimation { duration: 680; easing.type: Easing.OutQuint }
+                  }
+
+                  Canvas {
+                    id: liquidCanvas
+                    anchors.fill: parent
+                    visible: orbitDetailCell.modelData.kind === "liquid"
+                      && Number(orbitDetailCell.modelData.level) >= 0
+                    antialiasing: true
+
+                    onPaint: {
+                      var ctx = getContext("2d")
+                      ctx.clearRect(0, 0, width, height)
+                      if (!visible) return
+                      var level = orbitDetailCell.animatedLevel
+                      var fillY = height * (1 - level)
+                      var amplitude = level > 0.02 && level < 0.98 ? Style.space(2.4) : 0
+                      var phase = root.weatherWavePhase
+
+                      ctx.beginPath()
+                      ctx.moveTo(0, fillY)
+                      ctx.bezierCurveTo(
+                        width * 0.33, fillY + Math.sin(phase) * amplitude,
+                        width * 0.67, fillY + Math.cos(phase + Math.PI) * amplitude,
+                        width, fillY)
+                      ctx.lineTo(width, height)
+                      ctx.lineTo(0, height)
+                      ctx.closePath()
+                      ctx.fillStyle = Util.alpha(root.weatherAccent, 0.28).toString()
+                      ctx.fill()
+                    }
+
+                    Connections {
+                      target: root
+                      enabled: liquidCanvas.visible
+                      function onWeatherWavePhaseChanged() { liquidCanvas.requestPaint() }
+                      function onWeatherAccentChanged() { liquidCanvas.requestPaint() }
+                    }
+
+                    Connections {
+                      target: orbitDetailCell
+                      function onAnimatedLevelChanged() { liquidCanvas.requestPaint() }
+                      function onWidthChanged() { liquidCanvas.requestPaint() }
+                      function onHeightChanged() { liquidCanvas.requestPaint() }
+                    }
+                  }
 
                   Column {
+                    z: 1
                     anchors.centerIn: parent
                     width: parent.width - Style.space(8)
                     spacing: Style.space(1)
