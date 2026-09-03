@@ -62,8 +62,10 @@ chance. Below that:
   It advances after 6.5 seconds idle by default and pauses under the pointer.
   Condition-reactive ambient color and a drifting ghost glyph follow the
   selected day; cards lean into velocity, rain becomes a liquid wave gauge,
-  and thunderstorm days carry an urgent breathing edge. Forecast loading uses
-  an animated organic Canvas glyph rather than a static spinner. Refreshes and
+  and thunderstorm days carry an urgent breathing edge. A soft energy core of
+  phase-shifted radial rings breathes behind the selected condition, accelerating
+  visually into the urgent palette for storms. Forecast loading uses an
+  animated organic Canvas glyph rather than a static spinner. Refreshes and
   city changes sweep the old forecast away behind layered, condition-colored
   Bézier waves, then reveal the new sky in the direction of the last orbit
   gesture.

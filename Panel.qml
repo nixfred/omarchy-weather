@@ -244,6 +244,7 @@ Panel {
   property real carouselLean: 0
   property real weatherAmbientPhase: 0
   property real weatherWavePhase: 0
+  property real weatherCorePhase: 0
   // A two-stage transition: 0→1 covers the old forecast, 1→2 reveals the
   // refreshed one. Direction remembers the user's last orbit gesture, so a
   // refresh feels connected to the same physical surface.
@@ -503,6 +504,14 @@ Panel {
     from: 0
     to: Math.PI * 2
     duration: 2600
+    loops: Animation.Infinite
+    running: root.opened && root.mainView === "forecast"
+  }
+
+  NumberAnimation on weatherCorePhase {
+    from: 0
+    to: Math.PI * 2
+    duration: 5800
     loops: Animation.Infinite
     running: root.opened && root.mainView === "forecast"
   }
@@ -1764,6 +1773,18 @@ KeyboardPanel {
                 font.pixelSize: Style.space(176)
                 rotation: Math.sin(root.weatherAmbientPhase * 0.44) * 2.2
                 scale: 0.96 + Math.sin(root.weatherAmbientPhase * 0.83) * 0.035
+              }
+
+              WeatherEnergyCore {
+                anchors.centerIn: parent
+                z: -1
+                width: Style.space(292)
+                height: Style.space(186)
+                active: root.opened && root.mainView === "forecast"
+                storm: root.carouselStorm
+                phase: root.weatherCorePhase
+                accentColor: root.weatherAccent
+                urgentColor: Color.urgent
               }
 
               // Soft concentric halos give the center card some depth without
