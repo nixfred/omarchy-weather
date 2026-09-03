@@ -9,6 +9,7 @@ import unittest
 PLUGIN = Path(__file__).parents[1]
 PANEL = (PLUGIN / "Panel.qml").read_text(encoding="utf-8")
 LOADER = (PLUGIN / "MorphingWeatherLoader.qml").read_text(encoding="utf-8")
+WAVE_WIPE = (PLUGIN / "WeatherWaveWipe.qml").read_text(encoding="utf-8")
 README = (PLUGIN / "README.md").read_text(encoding="utf-8")
 MANIFEST = json.loads((PLUGIN / "manifest.json").read_text(encoding="utf-8"))
 
@@ -61,6 +62,21 @@ class ForecastOrbitTests(unittest.TestCase):
         self.assertIn("Canvas {", LOADER)
         self.assertIn("quadraticCurveTo", LOADER)
         self.assertIn("loops: Animation.Infinite", LOADER)
+
+    def test_refresh_and_location_changes_use_the_wave_wipe(self):
+        for contract in (
+            "function beginWeatherTransition(",
+            "function completeWeatherTransition(",
+            "id: weatherWipeCover",
+            "id: weatherWipeReveal",
+            'beginWeatherTransition("location")',
+            "WeatherWaveWipe {",
+        ):
+            self.assertIn(contract, PANEL)
+        self.assertIn("ctx.bezierCurveTo(", WAVE_WIPE)
+        self.assertIn("property real direction", WAVE_WIPE)
+        self.assertIn("root.weatherWipeDirection = dx > 0 ? 1 : -1", PANEL)
+        self.assertIn("layered, condition-colored", README)
 
 
 if __name__ == "__main__":

@@ -55,9 +55,14 @@ Panel {
     carouselEntrance.stop()
     carouselSnap.stop()
     carouselLeanReset.stop()
+    weatherWipeCover.stop()
+    weatherWipeReveal.stop()
+    weatherWipeFallback.stop()
     carouselDragging = false
     carouselSettling = false
     carouselLean = 0
+    weatherWipeActive = false
+    weatherWipeProgress = 0
     if (root.editingLocation) root.cancelEditingLocation()
     root.mainView = "forecast"
     root.controller.hide()
@@ -105,7 +110,8 @@ Panel {
     forecastRetryTimer.stop()
     dailyForecastRetryTimer.stop()
     airQualityRetryTimer.stop()
-    Qt.callLater(refresh)
+    beginWeatherTransition("location")
+    Qt.callLater(function() { root.refresh(false) })
   }
 
   property FileView locationFile: FileView {
@@ -238,6 +244,16 @@ Panel {
   property real carouselLean: 0
   property real weatherAmbientPhase: 0
   property real weatherWavePhase: 0
+  // A two-stage transition: 0→1 covers the old forecast, 1→2 reveals the
+  // refreshed one. Direction remembers the user's last orbit gesture, so a
+  // refresh feels connected to the same physical surface.
+  property real weatherWipeProgress: 0
+  property real weatherWipeDirection: 1
+  property bool weatherWipeActive: false
+  property bool weatherWipeCovered: false
+  property bool weatherWipeDataReady: false
+  property color weatherWipeAccent: weatherAccent
+  property string weatherWipeLabel: "REFRESHING FORECAST"
   readonly property real carouselFocusAngle: 90
   readonly property int carouselCount: daily.length
   readonly property real carouselStep: carouselCount > 0 ? 360 / carouselCount : 36
@@ -365,6 +381,7 @@ Panel {
   function stepCarousel(direction) {
     if (carouselCount < 2 || carouselDragging) return
     carouselLastInteractionMs = Date.now()
+    weatherWipeDirection = direction >= 0 ? 1 : -1
     carouselLeanReset.stop()
     carouselLean = Math.max(-9, Math.min(9, -direction * 7))
     carouselLeanReset.restart()
@@ -387,6 +404,35 @@ Panel {
     carouselReveal = playEntrance ? 0 : 1
     carouselLift = playEntrance ? 0.86 : 1
     if (playEntrance) carouselEntrance.restart()
+  }
+
+  function beginWeatherTransition(reason) {
+    if (!root.opened || root.mainView !== "forecast") return
+    weatherWipeCover.stop()
+    weatherWipeReveal.stop()
+    weatherWipeFallback.stop()
+    weatherWipeAccent = root.weatherAccent
+    weatherWipeLabel = reason === "location" ? "CHANGING SKIES" : "REFRESHING FORECAST"
+    weatherWipeProgress = 0
+    weatherWipeCovered = false
+    weatherWipeDataReady = false
+    weatherWipeActive = true
+    weatherWipeCover.start()
+    weatherWipeFallback.restart()
+  }
+
+  function completeWeatherTransition() {
+    if (!weatherWipeActive) return
+    weatherWipeFallback.stop()
+    weatherWipeDataReady = true
+    weatherWipeAccent = weatherAccentForCode(carouselDay ? carouselDay.code : -1)
+    if (weatherWipeCovered) weatherWipeReveal.restart()
+  }
+
+  function revealWeatherTransition() {
+    if (!weatherWipeActive || !weatherWipeCovered) return
+    weatherWipeDataReady = true
+    weatherWipeReveal.restart()
   }
 
   function carouselCardAt(pointX, pointY) {
@@ -461,6 +507,49 @@ Panel {
     running: root.opened && root.mainView === "forecast"
   }
 
+  NumberAnimation {
+    id: weatherWipeCover
+    target: root
+    property: "weatherWipeProgress"
+    from: 0
+    to: 1
+    duration: 460
+    easing.type: Easing.InOutCubic
+    onFinished: {
+      root.weatherWipeCovered = true
+      if (root.weatherWipeDataReady) weatherWipeReveal.restart()
+    }
+  }
+
+  SequentialAnimation {
+    id: weatherWipeReveal
+    PauseAnimation { duration: 100 }
+    NumberAnimation {
+      target: root
+      property: "weatherWipeProgress"
+      from: 1
+      to: 2
+      duration: 680
+      easing.type: Easing.OutQuint
+    }
+    ScriptAction {
+      script: {
+        root.weatherWipeActive = false
+        root.weatherWipeCovered = false
+        root.weatherWipeDataReady = false
+        root.weatherWipeProgress = 0
+      }
+    }
+  }
+
+  // A slow provider must never leave the panel hidden. If fresh data has not
+  // arrived, reveal the loading state and let the normal retry UI take over.
+  Timer {
+    id: weatherWipeFallback
+    interval: 1800
+    onTriggered: root.revealWeatherTransition()
+  }
+
   SequentialAnimation {
     id: carouselEntrance
     ScriptAction {
@@ -521,7 +610,8 @@ Panel {
   }
 
 
-  function refresh() {
+  function refresh(reason) {
+    if (reason !== false) beginWeatherTransition(reason === "location" ? "location" : "refresh")
     forecastRetries = 0
     dailyForecastRetries = 0
     airQualityRetries = 0
@@ -638,7 +728,8 @@ Panel {
     Qt.callLater(function() { if (keyCatcher) keyCatcher.forceActiveFocus() })
   }
 
-  function refetchView() {
+  function refetchView(playTransition) {
+    if (playTransition) beginWeatherTransition("location")
     forecastRetries = 0
     dailyForecastRetries = 0
     airQualityRetries = 0
@@ -648,7 +739,7 @@ Panel {
     forecastProc.running = false
     dailyForecastProc.running = false
     airQualityProc.running = false
-    Qt.callLater(refresh)
+    Qt.callLater(function() { root.refresh(false) })
   }
 
   function applyPeek(location) {
@@ -666,21 +757,23 @@ Panel {
       locationPickHint = "Pick a city from the list"
       return
     }
+    beginWeatherTransition("location")
     peekLocation = { name: String(location.name || ""), latitude: lat, longitude: lon }
     report = null
     dailyForecastReport = null
     airQualityReport = null
     cancelEditingLocation()
-    refetchView()
+    refetchView(false)
   }
 
   function clearPeek() {
     if (!peekLocation && !peeking) return
+    beginWeatherTransition("location")
     peekLocation = null
     report = null
     dailyForecastReport = null
     airQualityReport = null
-    refetchView()
+    refetchView(false)
   }
 
   function commitLocation() {
@@ -958,6 +1051,7 @@ Panel {
             root.homeLabel = root.label
           }
           root.dailyForecastRetries = 0
+          root.completeWeatherTransition()
           if (!root.peeking && Model.weatherResponseCompletesSave(root.hasHomeCoordinates, "open-meteo"))
             root.finishSavingLocation()
         } catch (e) {
@@ -1989,6 +2083,7 @@ KeyboardPanel {
                   root.carouselAngle += dx * 0.42
                   var instantVelocity = dx * 0.42 / elapsed
                   root.carouselVelocity = root.carouselVelocity * 0.68 + instantVelocity * 0.32
+                  if (Math.abs(dx) > 0.5) root.weatherWipeDirection = dx > 0 ? 1 : -1
                   carouselLeanReset.stop()
                   root.carouselLean = Math.max(-11, Math.min(11, dx * 0.9))
                   root.carouselDragDistance += Math.abs(dx)
@@ -2766,6 +2861,26 @@ KeyboardPanel {
               font.pixelSize: Style.font.bodySmall
             }
           }
+      }
+
+      WeatherWaveWipe {
+        id: forecastWaveWipe
+        anchors.top: chromeBar.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        z: 900
+        active: root.weatherWipeActive && root.mainView === "forecast"
+        progress: root.weatherWipeProgress
+        direction: root.weatherWipeDirection
+        accentColor: root.weatherWipeAccent
+        surfaceColor: Color.popups.background
+        foregroundColor: root.bar.foreground
+        glyph: root.carouselDay
+          ? root.iconForOpenMeteoCode(root.carouselDay.code, false)
+          : (root.label || "")
+        label: root.weatherWipeLabel
+        fontFamily: root.bar.fontFamily
       }
     }
   }
