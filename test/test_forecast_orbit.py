@@ -16,6 +16,17 @@ MANIFEST = json.loads((PLUGIN / "manifest.json").read_text(encoding="utf-8"))
 
 
 class ForecastOrbitTests(unittest.TestCase):
+    def test_hot_reload_bar_teardown_has_fallback(self):
+        for contract in (
+            "id: fallbackBar",
+            "property color foreground: Color.foreground",
+            "property color barForeground: Color.foreground",
+            "property color urgent: Color.urgent",
+            "property string fontFamily: Style.font.family",
+            "onBarChanged: if (!bar) bar = fallbackBar",
+        ):
+            self.assertIn(contract, PANEL)
+
     def test_direct_manipulation_and_snap_are_present(self):
         for contract in (
             "function carouselCardAt(",

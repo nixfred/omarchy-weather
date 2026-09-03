@@ -13,6 +13,19 @@ Panel {
   ipcTarget: "io.github.calebhat.weather"
   manageIpc: false
 
+  // A plugin rescan destroys the old bar before every loaded panel is
+  // collected. Keep late bindings pointed at a valid palette object during
+  // that teardown window instead of producing an unbounded null-error loop.
+  QtObject {
+    id: fallbackBar
+    property color foreground: Color.foreground
+    property color barForeground: Color.foreground
+    property color urgent: Color.urgent
+    property string fontFamily: Style.font.family
+  }
+
+  onBarChanged: if (!bar) bar = fallbackBar
+
   property var anchorItem: null
   property bool openedFromHotkey: false
 
