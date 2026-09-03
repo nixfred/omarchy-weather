@@ -196,6 +196,21 @@ Panel {
   readonly property string reportLocation: peeking ? peekName : (configuredLocation || wttrLocation || (areaInfo && areaInfo.areaName && areaInfo.areaName[0] ? areaInfo.areaName[0].value : ""))
   readonly property string reportTempNum: current ? String(useImperial ? current.temp_F : current.temp_C) : ""
   readonly property string tempUnit: "°" + (useImperial ? "F" : "C")
+  property real animatedReportTemp: NaN
+  property string animatedTempUnit: ""
+  property real temperatureFlash: 0
+  property int temperatureDirection: 0
+  readonly property string displayedTempNum: isFinite(animatedReportTemp)
+    ? String(Math.round(animatedReportTemp))
+    : (reportTempNum || "—")
+  readonly property color temperatureMotionColor: {
+    var base = root.bar ? root.bar.foreground : Color.foreground
+    if (temperatureDirection > 0)
+      return Qt.tint(base, Qt.rgba(1.0, 0.30, 0.08, temperatureFlash * 0.72))
+    if (temperatureDirection < 0)
+      return Qt.tint(base, Qt.rgba(0.12, 0.64, 1.0, temperatureFlash * 0.72))
+    return base
+  }
   readonly property string reportFeels: current ? formatTemp(useImperial ? current.FeelsLikeF : current.FeelsLikeC) : ""
   readonly property string reportWindDir: openMeteoCurrent ? Model.windDirectionLabel(openMeteoCurrent.windDirection) : ""
   readonly property string reportWind: current ? ((useImperial ? (current.windspeedMiles + " mph") : (current.windspeedKmph + " km/h")) + (reportWindDir ? " " + reportWindDir : "")) : ""
@@ -316,6 +331,39 @@ Panel {
     return isFinite(value) && value >= 95
   }
 
+  function syncAnimatedTemperature() {
+    if (root.reportTempNum === "") return
+    var next = Number(root.reportTempNum)
+    if (!isFinite(next)) return
+
+    // Unit conversions are not weather changes; snap those without a false
+    // warm/cool signal. The first reading also appears immediately.
+    if (!isFinite(root.animatedReportTemp) || root.animatedTempUnit !== root.tempUnit) {
+      temperatureTween.stop()
+      temperatureFlashPulse.stop()
+      root.animatedReportTemp = next
+      root.animatedTempUnit = root.tempUnit
+      root.temperatureDirection = 0
+      root.temperatureFlash = 0
+      return
+    }
+
+    var delta = next - root.animatedReportTemp
+    if (Math.abs(delta) < 0.01) return
+    root.temperatureDirection = delta > 0 ? 1 : -1
+    temperatureTween.stop()
+    temperatureFlashPulse.stop()
+    temperatureTween.from = root.animatedReportTemp
+    temperatureTween.to = next
+    temperatureTween.duration = Math.min(980, 420 + Math.abs(delta) * 34)
+    root.temperatureFlash = 0
+    temperatureTween.start()
+    temperatureFlashPulse.start()
+  }
+
+  onReportTempNumChanged: syncAnimatedTemperature()
+  onTempUnitChanged: Qt.callLater(syncAnimatedTemperature)
+
   // Keep the shell theme as the base, then tint it toward a recognizable
   // condition family. These colors only appear at low opacity, so the panel
   // stays at home in custom themes instead of becoming a fixed blue weather UI.
@@ -338,6 +386,32 @@ Panel {
 
   Behavior on weatherAccent {
     ColorAnimation { duration: 720; easing.type: Easing.OutCubic }
+  }
+
+  NumberAnimation {
+    id: temperatureTween
+    target: root
+    property: "animatedReportTemp"
+    easing.type: Easing.OutCubic
+  }
+
+  SequentialAnimation {
+    id: temperatureFlashPulse
+    NumberAnimation {
+      target: root
+      property: "temperatureFlash"
+      from: 0
+      to: 1
+      duration: 130
+      easing.type: Easing.OutCubic
+    }
+    NumberAnimation {
+      target: root
+      property: "temperatureFlash"
+      to: 0
+      duration: 780
+      easing.type: Easing.OutQuint
+    }
   }
 
   function selectedIndexForAngle(angle) {
@@ -1360,21 +1434,36 @@ KeyboardPanel {
                 Text {
                   textFormat: Text.PlainText
                   id: tempBig
-                  text: root.reportTempNum || "—"
-                  color: root.bar.foreground
+                  text: root.displayedTempNum
+                  color: root.temperatureMotionColor
                   font.family: root.bar.fontFamily
                   font.pixelSize: 56
                   font.bold: true
+                  scale: 1 + root.temperatureFlash * 0.055
+                  transformOrigin: Item.Center
                 }
 
                 Text {
                   textFormat: Text.PlainText
                   text: root.current ? root.tempUnit : ""
-                  color: root.bar.foreground
+                  color: root.temperatureMotionColor
                   font.family: root.bar.fontFamily
                   font.pixelSize: Style.font.display
                   anchors.top: tempBig.top
                   anchors.topMargin: Style.space(10)
+                }
+
+                Text {
+                  textFormat: Text.PlainText
+                  width: Style.space(13)
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: root.temperatureDirection > 0 ? "↗" : "↘"
+                  color: root.temperatureMotionColor
+                  opacity: root.temperatureFlash
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.bold: true
+                  scale: 0.72 + root.temperatureFlash * 0.36
                 }
               }
             }

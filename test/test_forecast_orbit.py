@@ -92,6 +92,20 @@ class ForecastOrbitTests(unittest.TestCase):
         self.assertIn("var ringScales = [", ENERGY_CORE)
         self.assertIn("Counter-rotating partial arcs", ENERGY_CORE)
 
+    def test_temperature_tweens_and_signals_direction(self):
+        for contract in (
+            "function syncAnimatedTemperature(",
+            "property real animatedReportTemp",
+            "property real temperatureFlash",
+            "id: temperatureTween",
+            "id: temperatureFlashPulse",
+            "text: root.displayedTempNum",
+            'root.temperatureDirection > 0 ? "↗" : "↘"',
+        ):
+            self.assertIn(contract, PANEL)
+        self.assertIn("warming flashes amber", README)
+        self.assertIn("cooling flashes ice-blue", README)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -47,7 +47,8 @@ the panel is peeking at another city.
 ### Forecast
 
 Current temperature and condition, feels-like, wind, and precipitation
-chance. Below that:
+chance. New readings count smoothly into place; warming flashes amber with a
+rising mark, while cooling flashes ice-blue with a falling mark. Below that:
 
 - **Today** — remaining hours of the current local day (not a fixed six-cell
   strip). Scroll sideways if the day is long. The first cell is **NOW**.
