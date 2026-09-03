@@ -106,6 +106,31 @@ class ForecastOrbitTests(unittest.TestCase):
         self.assertIn("warming flashes amber", README)
         self.assertIn("cooling flashes ice-blue", README)
 
+    def test_late_day_hourly_cards_fill_the_row_symmetrically(self):
+        for contract in (
+            "id: hourlyStrip",
+            "readonly property real edgeInset",
+            "readonly property real fittedCellWidth",
+            "var available = width - edgeInset * 2 - gaps",
+            "width: hourlyStrip.fittedCellWidth",
+        ):
+            self.assertIn(contract, PANEL)
+        self.assertEqual(PANEL.count("Item { width: hourlyStrip.edgeInset; height: 1 }"), 2)
+        self.assertIn("expand evenly across the", README)
+
+    def test_opening_choreography_is_fifty_percent_faster(self):
+        for contract in (
+            "duration: 307",
+            "PauseAnimation { duration: 67 }",
+            "duration: 453",
+            "interval: 1200",
+            "duration: 700",
+            "duration: 347",
+            "duration: 600",
+        ):
+            self.assertIn(contract, PANEL)
+        self.assertIn("run at 1.5×", README)
+
 
 if __name__ == "__main__":
     unittest.main()

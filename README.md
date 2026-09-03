@@ -51,7 +51,9 @@ chance. New readings count smoothly into place; warming flashes amber with a
 rising mark, while cooling flashes ice-blue with a falling mark. Below that:
 
 - **Today** — remaining hours of the current local day (not a fixed six-cell
-  strip). Scroll sideways if the day is long. The first cell is **NOW**.
+  strip). When only a few hours remain, their cards expand evenly across the
+  full row with symmetric edges; scroll sideways when the day is long. The
+  first cell is **NOW**.
 - **Metrics** — wind (speed and direction), humidity, pressure, UV, air
   quality (US AQI, PM2.5 / PM10), sunrise and sunset. Each block can be
   hidden in settings.
@@ -70,6 +72,9 @@ rising mark, while cooling flashes ice-blue with a falling mark. Below that:
   city changes sweep the old forecast away behind layered, condition-colored
   Bézier waves, then reveal the new sky in the direction of the last orbit
   gesture.
+
+The orbit entrance and weather wipe run at 1.5× their original speed, keeping
+the visual hit while getting the forecast under your eyes sooner.
 
 Units follow `auto` (locale and country), `metric`, or `imperial`.
 

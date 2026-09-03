@@ -596,7 +596,7 @@ Panel {
     property: "weatherWipeProgress"
     from: 0
     to: 1
-    duration: 460
+    duration: 307
     easing.type: Easing.InOutCubic
     onFinished: {
       root.weatherWipeCovered = true
@@ -606,13 +606,13 @@ Panel {
 
   SequentialAnimation {
     id: weatherWipeReveal
-    PauseAnimation { duration: 100 }
+    PauseAnimation { duration: 67 }
     NumberAnimation {
       target: root
       property: "weatherWipeProgress"
       from: 1
       to: 2
-      duration: 680
+      duration: 453
       easing.type: Easing.OutQuint
     }
     ScriptAction {
@@ -629,7 +629,7 @@ Panel {
   // arrived, reveal the loading state and let the normal retry UI take over.
   Timer {
     id: weatherWipeFallback
-    interval: 1800
+    interval: 1200
     onTriggered: root.revealWeatherTransition()
   }
 
@@ -646,7 +646,7 @@ Panel {
         target: root
         property: "carouselAngle"
         to: root.carouselFocusAngle
-        duration: 1050
+        duration: 700
         easing.type: Easing.OutBack
         easing.overshoot: 1.08
       }
@@ -654,14 +654,14 @@ Panel {
         target: root
         property: "carouselReveal"
         to: 1
-        duration: 520
+        duration: 347
         easing.type: Easing.OutCubic
       }
       NumberAnimation {
         target: root
         property: "carouselLift"
         to: 1
-        duration: 900
+        duration: 600
         easing.type: Easing.OutBack
         easing.overshoot: 1.1
       }
@@ -2398,19 +2398,29 @@ KeyboardPanel {
             }
 
             Flickable {
+              id: hourlyStrip
+              readonly property real edgeInset: Style.space(2)
+              readonly property real cellGap: Style.space(4)
+              readonly property real fittedCellWidth: {
+                var count = root.hourly.length
+                if (count < 1) return Style.space(52)
+                var gaps = cellGap * (count + 1)
+                var available = width - edgeInset * 2 - gaps
+                return Math.max(Style.space(52), available / count)
+              }
               width: parent.width
               height: hourRow.implicitHeight
               contentWidth: hourRow.implicitWidth
               contentHeight: hourRow.implicitHeight
               clip: true
               boundsBehavior: Flickable.StopAtBounds
-              interactive: hourRow.implicitWidth > width
+              interactive: hourRow.implicitWidth > width + 0.5
 
               Row {
                 id: hourRow
-                spacing: Style.space(4)
+                spacing: hourlyStrip.cellGap
 
-                Item { width: Style.space(2); height: 1 }
+                Item { width: hourlyStrip.edgeInset; height: 1 }
 
                 Repeater {
                   id: hourRepeater
@@ -2419,7 +2429,7 @@ KeyboardPanel {
                   Item {
                     required property var modelData
                     required property int index
-                    width: Style.space(52)
+                    width: hourlyStrip.fittedCellWidth
                     height: hourCellColumn.implicitHeight + Style.space(8)
 
                     Rectangle {
@@ -2476,7 +2486,7 @@ KeyboardPanel {
                   }
                 }
 
-                Item { width: Style.space(12); height: 1 }
+                Item { width: hourlyStrip.edgeInset; height: 1 }
               }
             }
           }
