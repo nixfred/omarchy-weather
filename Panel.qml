@@ -34,6 +34,7 @@ Panel {
     openedFromHotkey = false
     setCenterHoverRevealSuppressed(false)
     root.controller.show()
+    resetCarousel(true)
     locationFile.reload()
     root.refresh()
   }
@@ -41,6 +42,7 @@ Panel {
   function openFromHotkey() {
     openedFromHotkey = true
     root.controller.show()
+    resetCarousel(true)
     locationFile.reload()
     root.refresh()
     Qt.callLater(function() {
@@ -50,6 +52,10 @@ Panel {
 
   function close() {
     setCenterHoverRevealSuppressed(false)
+    carouselEntrance.stop()
+    carouselSnap.stop()
+    carouselDragging = false
+    carouselSettling = false
     if (root.editingLocation) root.cancelEditingLocation()
     root.mainView = "forecast"
     root.controller.hide()
@@ -177,6 +183,7 @@ Panel {
   readonly property bool showSun: setting("showSun", true) !== false
   readonly property bool showForecast: setting("showForecast", true) !== false
   readonly property bool showFeelsLike: setting("showFeelsLike", true) !== false
+  readonly property bool orbitAutoSpin: setting("orbitAutoSpin", true) !== false
 
   readonly property string reportLocation: peeking ? peekName : (configuredLocation || wttrLocation || (areaInfo && areaInfo.areaName && areaInfo.areaName[0] ? areaInfo.areaName[0].value : ""))
   readonly property string reportTempNum: current ? String(useImperial ? current.temp_F : current.temp_C) : ""
@@ -207,6 +214,34 @@ Panel {
     return Model.minutelyPrecipForecast(dailyForecastReport, 7200)
   }
   readonly property var daily: Model.dailyForecast(dailyForecastReport, Qt.formatDate(new Date(), "yyyy-MM-dd"), 10)
+  // The ten-day forecast is presented as a circular, directly manipulated
+  // orbit. `carouselAngle` is deliberately unbounded: keeping full turns
+  // avoids a visible jump when the selected day wraps from day ten to today.
+  property real carouselAngle: 90
+  property int carouselSelectedIndex: 0
+  property int carouselDetailIndex: 0
+  property bool carouselDragging: false
+  property bool carouselSettling: false
+  property bool carouselPointerInside: false
+  property int carouselHoverIndex: -1
+  property real carouselPressX: 0
+  property real carouselLastX: 0
+  property real carouselLastMs: 0
+  property real carouselVelocity: 0
+  property real carouselDragDistance: 0
+  property real carouselReveal: 1
+  property real carouselLift: 1
+  property real carouselDetailReveal: 1
+  property real carouselLastInteractionMs: Date.now()
+  readonly property real carouselFocusAngle: 90
+  readonly property int carouselCount: daily.length
+  readonly property real carouselStep: carouselCount > 0 ? 360 / carouselCount : 36
+  readonly property var carouselDay: carouselCount > 0
+    ? daily[Math.max(0, Math.min(carouselDetailIndex, carouselCount - 1))]
+    : null
+  readonly property var carouselUv: carouselDay && carouselDay.uv !== null && isFinite(carouselDay.uv)
+    ? Model.uvInfo(carouselDay.uv)
+    : null
   readonly property var airQuality: Model.aqiSummary(airQualityReport)
   readonly property bool hasAirQuality: airQuality !== null
   // Safe alias: bindings evaluate even when the AQI section is hidden, so the
@@ -246,6 +281,177 @@ Panel {
   readonly property real humidityLevel: openMeteoCurrent && openMeteoCurrent.humidity !== "" ? (Number(openMeteoCurrent.humidity) / 100) : -1
   readonly property real uvLevel: todayExtra && todayExtra.uv !== null && isFinite(todayExtra.uv) ? Math.max(0, Math.min(1, todayExtra.uv / 12)) : -1
   readonly property string hourlyMax: Model.hourlyMaxTemp(hourly, useImperial)
+
+  function positiveModulo(value, modulus) {
+    if (modulus < 1) return 0
+    return ((value % modulus) + modulus) % modulus
+  }
+
+  function selectedIndexForAngle(angle) {
+    if (carouselCount < 1) return 0
+    return positiveModulo(Math.round((carouselFocusAngle - angle) / carouselStep), carouselCount)
+  }
+
+  function syncCarouselSelection() {
+    if (carouselCount < 1) return
+    var nextIndex = selectedIndexForAngle(carouselAngle)
+    if (nextIndex === carouselSelectedIndex) return
+    carouselSelectedIndex = nextIndex
+    carouselDetailIndex = nextIndex
+    carouselDetailReveal = 0.58
+    carouselDetailPulse.restart()
+  }
+
+  function nearestCarouselTurn(index) {
+    if (carouselCount < 1) return 0
+    var normalizedIndex = positiveModulo(index, carouselCount)
+    var currentTurn = (carouselFocusAngle - carouselAngle) / carouselStep
+    return normalizedIndex + Math.round((currentTurn - normalizedIndex) / carouselCount) * carouselCount
+  }
+
+  function settleCarousel(rawTurn) {
+    if (carouselCount < 1) return
+    var turn = Math.round(rawTurn)
+    carouselSelectedIndex = positiveModulo(turn, carouselCount)
+    carouselDetailIndex = carouselSelectedIndex
+    carouselSettling = true
+    carouselSnap.stop()
+    carouselSnap.from = carouselAngle
+    carouselSnap.to = carouselFocusAngle - turn * carouselStep
+    carouselSnap.start()
+  }
+
+  function focusCarouselDay(index) {
+    if (carouselCount < 1) return
+    settleCarousel(nearestCarouselTurn(index))
+  }
+
+  function stepCarousel(direction) {
+    if (carouselCount < 2 || carouselDragging) return
+    carouselLastInteractionMs = Date.now()
+    var currentTurn = Math.round((carouselFocusAngle - carouselAngle) / carouselStep)
+    settleCarousel(currentTurn + direction)
+  }
+
+  function resetCarousel(playEntrance) {
+    carouselSnap.stop()
+    carouselDragging = false
+    carouselSettling = false
+    carouselVelocity = 0
+    carouselHoverIndex = -1
+    carouselSelectedIndex = 0
+    carouselDetailIndex = 0
+    carouselAngle = carouselFocusAngle
+    carouselLastInteractionMs = Date.now()
+    carouselReveal = playEntrance ? 0 : 1
+    carouselLift = playEntrance ? 0.86 : 1
+    if (playEntrance) carouselEntrance.restart()
+  }
+
+  function carouselCardAt(pointX, pointY) {
+    var bestIndex = -1
+    var bestZ = -999999
+    for (var i = 0; i < carouselRepeater.count; i++) {
+      var card = carouselRepeater.itemAt(i)
+      if (!card || !card.visible) continue
+      var local = card.mapFromItem(carouselStage, pointX, pointY)
+      if (local.x >= 0 && local.x <= card.width && local.y >= 0 && local.y <= card.height && card.z >= bestZ) {
+        bestIndex = i
+        bestZ = card.z
+      }
+    }
+    return bestIndex
+  }
+
+  function updateCarouselHover(pointX, pointY) {
+    carouselHoverIndex = carouselCardAt(pointX, pointY)
+  }
+
+  onCarouselAngleChanged: syncCarouselSelection()
+  onDailyChanged: {
+    if (carouselCount < 1) return
+    carouselSelectedIndex = Math.max(0, Math.min(carouselSelectedIndex, carouselCount - 1))
+    carouselDetailIndex = carouselSelectedIndex
+    focusCarouselDay(carouselSelectedIndex)
+  }
+
+  NumberAnimation {
+    id: carouselSnap
+    target: root
+    property: "carouselAngle"
+    duration: 620
+    easing.type: Easing.OutBack
+    easing.overshoot: 1.12
+    onFinished: root.carouselSettling = false
+  }
+
+  NumberAnimation {
+    id: carouselDetailPulse
+    target: root
+    property: "carouselDetailReveal"
+    to: 1
+    duration: 240
+    easing.type: Easing.OutCubic
+  }
+
+  SequentialAnimation {
+    id: carouselEntrance
+    ScriptAction {
+      script: {
+        if (root.carouselCount > 1)
+          root.carouselAngle = root.carouselFocusAngle + root.carouselStep * 2.25
+      }
+    }
+    ParallelAnimation {
+      NumberAnimation {
+        target: root
+        property: "carouselAngle"
+        to: root.carouselFocusAngle
+        duration: 1050
+        easing.type: Easing.OutBack
+        easing.overshoot: 1.08
+      }
+      NumberAnimation {
+        target: root
+        property: "carouselReveal"
+        to: 1
+        duration: 520
+        easing.type: Easing.OutCubic
+      }
+      NumberAnimation {
+        target: root
+        property: "carouselLift"
+        to: 1
+        duration: 900
+        easing.type: Easing.OutBack
+        easing.overshoot: 1.1
+      }
+    }
+    ScriptAction {
+      script: {
+        root.carouselSelectedIndex = 0
+        root.carouselDetailIndex = 0
+        root.carouselAngle = root.carouselFocusAngle
+      }
+    }
+  }
+
+  Timer {
+    id: carouselIdle
+    interval: 1000
+    repeat: true
+    running: root.opened
+      && root.mainView === "forecast"
+      && root.carouselCount > 1
+      && root.orbitAutoSpin
+    onTriggered: {
+      if (!root.carouselDragging
+          && !root.carouselSettling
+          && !root.carouselPointerInside
+          && Date.now() - root.carouselLastInteractionMs >= 6500)
+        root.stepCarousel(1)
+    }
+  }
 
 
   function refresh() {
@@ -826,6 +1032,18 @@ KeyboardPanel {
       id: keyCatcher
       anchors.fill: parent
       blocked: root.editingLocation
+      onMoveRequested: function(dx, dy) {
+        if (root.mainView !== "forecast") return
+        if (dx !== 0 && root.carouselCount > 1) {
+          root.stepCarousel(dx)
+          return
+        }
+        if (dy !== 0 && weatherScroll.contentHeight > weatherScroll.height) {
+          weatherScroll.contentY = Math.max(0, Math.min(
+            weatherScroll.contentHeight - weatherScroll.height,
+            weatherScroll.contentY + dy * Style.space(72)))
+        }
+      }
       onReturnRequested: root.startEditingLocation()
       onCloseRequested: {
         if (root.mainView === "settings") root.showForecast()
@@ -1289,6 +1507,412 @@ KeyboardPanel {
             font.italic: true
           }
 
+          // ---- FORECAST ORBIT -----------------------------------------------
+          // A ten-day, mouse-draggable carousel inspired by an astronomical
+          // dial: every day stays visible on the ellipse while depth, scale,
+          // opacity, tilt, and z-order make the front position feel physical.
+          Column {
+            id: carouselSection
+            visible: root.mainView === "forecast" && root.showForecast && root.carouselCount > 0
+            width: parent.width
+            spacing: Style.space(8)
+
+            Item {
+              width: parent.width
+              implicitHeight: carouselHeader.implicitHeight
+
+              PanelSectionHeader {
+                id: carouselHeader
+                text: "FORECAST ORBIT"
+                foreground: root.bar.foreground
+                fontFamily: root.bar.fontFamily
+              }
+
+              Text {
+                textFormat: Text.PlainText
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                text: "DRAG  ·  SCROLL  ·  ← →"
+                color: root.dimText
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.caption
+                font.letterSpacing: root.capsLetterSpacing * 0.65
+              }
+            }
+
+            Item {
+              id: carouselStage
+              width: parent.width
+              height: Style.space(278)
+              opacity: root.carouselReveal
+              scale: root.carouselLift
+              transformOrigin: Item.Center
+              clip: false
+
+              // Soft concentric halos give the center card some depth without
+              // depending on a theme-specific shadow or external effect.
+              Rectangle {
+                anchors.centerIn: parent
+                z: 110
+                width: Style.space(238)
+                height: Style.space(136)
+                radius: width / 2
+                color: "transparent"
+                border.width: Math.max(1, Style.space(1))
+                border.color: Util.alpha(Color.accent, 0.10)
+                scale: 1.0 + 0.025 * Math.sin(root.carouselAngle * Math.PI / 180)
+              }
+
+              Rectangle {
+                anchors.centerIn: parent
+                z: 120
+                width: Style.space(214)
+                height: Style.space(122)
+                radius: Math.min(Style.space(22), Style.cornerRadius * 2)
+                color: Util.alpha(root.bar.foreground, 0.045)
+                border.width: Math.max(1, Style.space(1))
+                border.color: Util.alpha(Color.accent, 0.35)
+                opacity: root.carouselDetailReveal
+                scale: 0.94 + root.carouselDetailReveal * 0.06
+
+                Rectangle {
+                  anchors.fill: parent
+                  anchors.margins: Style.space(5)
+                  radius: Math.max(1, parent.radius - Style.space(5))
+                  color: "transparent"
+                  border.width: Math.max(1, Style.space(1))
+                  border.color: Util.alpha(root.bar.foreground, 0.07)
+                }
+
+                Column {
+                  anchors.centerIn: parent
+                  width: parent.width - Style.space(24)
+                  spacing: Style.space(2)
+
+                  Text {
+                    textFormat: Text.PlainText
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    text: root.carouselDay
+                      ? ((root.carouselDay.isToday ? "TODAY" : root.dayName(root.carouselDay.date).toUpperCase())
+                        + "  ·  " + Qt.formatDate(new Date(root.carouselDay.date + "T12:00:00"), "MMM d").toUpperCase())
+                      : ""
+                    color: root.dimText
+                    font.family: root.bar.fontFamily
+                    font.pixelSize: Style.font.caption
+                    font.bold: true
+                    font.letterSpacing: root.capsLetterSpacing
+                  }
+
+                  Row {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: Style.space(10)
+
+                    Text {
+                      textFormat: Text.PlainText
+                      anchors.verticalCenter: parent.verticalCenter
+                      text: root.carouselDay ? root.iconForOpenMeteoCode(root.carouselDay.code, false) : ""
+                      color: root.bar.foreground
+                      font.family: root.bar.fontFamily
+                      font.pixelSize: Style.font.display
+                    }
+
+                    Column {
+                      anchors.verticalCenter: parent.verticalCenter
+                      spacing: 0
+
+                      Text {
+                        textFormat: Text.PlainText
+                        text: root.carouselDay
+                          ? root.bareTempForDay(root.carouselDay, "max") + "  /  " + root.bareTempForDay(root.carouselDay, "min")
+                          : ""
+                        color: root.bar.foreground
+                        font.family: root.bar.fontFamily
+                        font.pixelSize: Style.font.title
+                        font.bold: true
+                      }
+
+                      Text {
+                        textFormat: Text.PlainText
+                        text: root.carouselDay ? Model.conditionLabel(root.carouselDay.code) : ""
+                        color: root.dimText
+                        font.family: root.bar.fontFamily
+                        font.pixelSize: Style.font.bodySmall
+                      }
+                    }
+                  }
+                }
+              }
+
+              Canvas {
+                id: carouselTrack
+                anchors.fill: parent
+                opacity: 0.52
+                z: -2
+
+                onPaint: {
+                  var ctx = getContext("2d")
+                  ctx.reset()
+                  ctx.beginPath()
+                  ctx.ellipse(width / 2, height / 2, width * 0.405, Style.space(94), 0, 0, Math.PI * 2)
+                  ctx.strokeStyle = Util.alpha(Color.accent, 0.34).toString()
+                  ctx.lineWidth = Math.max(1, Style.space(1))
+                  ctx.setLineDash([Style.space(3), Style.space(8)])
+                  ctx.stroke()
+                }
+
+                onWidthChanged: requestPaint()
+                onHeightChanged: requestPaint()
+              }
+
+              Repeater {
+                id: carouselRepeater
+                model: root.daily
+
+                Item {
+                  id: orbitCard
+                  required property var modelData
+                  required property int index
+
+                  readonly property real radians: (root.carouselAngle + index * root.carouselStep) * Math.PI / 180
+                  readonly property real depth: (Math.sin(radians) + 1) / 2
+                  readonly property bool selected: index === root.carouselSelectedIndex
+                  readonly property bool hovered: index === root.carouselHoverIndex
+                  readonly property real baseScale: 0.62 + depth * 0.40
+
+                  width: Style.space(64)
+                  height: Style.space(82)
+                  x: carouselStage.width / 2 + Math.cos(radians) * carouselStage.width * 0.405 - width / 2
+                  y: carouselStage.height / 2 + Math.sin(radians) * Style.space(94) - height / 2
+                  // Only the focused card crosses in front of the hub. The
+                  // remaining days travel behind it, selling the 3D orbit
+                  // instead of looking like a flat ring of overlapping tiles.
+                  z: selected ? 500 : Math.round(depth * 80)
+                  opacity: selected ? 1 : 0.34 + depth * 0.58
+                  scale: baseScale * (selected ? 1.14 : (hovered ? 1.07 : 1))
+
+                  transform: Rotation {
+                    origin.x: orbitCard.width / 2
+                    origin.y: orbitCard.height / 2
+                    axis { x: 0; y: 1; z: 0 }
+                    angle: -Math.cos(orbitCard.radians) * 16
+                  }
+
+                  Behavior on scale {
+                    NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+                  }
+
+                  Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: -Style.space(5)
+                    radius: Math.min(Style.space(14), Style.cornerRadius * 1.5)
+                    color: "transparent"
+                    border.width: Math.max(1, Style.space(1))
+                    border.color: Util.alpha(Color.accent, orbitCard.selected ? 0.42 : 0)
+                    opacity: orbitCard.selected ? 1 : 0
+
+                    SequentialAnimation on scale {
+                      running: orbitCard.selected && root.opened && !root.carouselDragging
+                      loops: Animation.Infinite
+                      NumberAnimation { to: 1.06; duration: 950; easing.type: Easing.InOutSine }
+                      NumberAnimation { to: 1.0; duration: 950; easing.type: Easing.InOutSine }
+                    }
+                  }
+
+                  Rectangle {
+                    anchors.fill: parent
+                    radius: Math.min(Style.space(10), Style.cornerRadius)
+                    color: orbitCard.selected
+                      ? Util.alpha(Color.accent, 0.24)
+                      : (orbitCard.hovered ? Util.alpha(root.bar.foreground, 0.10) : Util.alpha(root.bar.foreground, 0.055))
+                    border.width: Math.max(1, Style.space(1))
+                    border.color: orbitCard.selected
+                      ? Util.alpha(Color.accent, 0.9)
+                      : Util.alpha(root.bar.foreground, orbitCard.hovered ? 0.22 : 0.09)
+
+                    Behavior on color { ColorAnimation { duration: 150 } }
+                    Behavior on border.color { ColorAnimation { duration: 150 } }
+
+                    Column {
+                      anchors.centerIn: parent
+                      width: parent.width
+                      spacing: Style.space(2)
+
+                      Text {
+                        textFormat: Text.PlainText
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        text: orbitCard.modelData.isToday ? "TODAY" : root.dayAbbr(orbitCard.modelData.date).toUpperCase()
+                        color: orbitCard.selected ? root.bar.foreground : root.dimText
+                        font.family: root.bar.fontFamily
+                        font.pixelSize: Style.font.caption
+                        font.bold: orbitCard.selected
+                      }
+
+                      Text {
+                        textFormat: Text.PlainText
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        text: root.iconForOpenMeteoCode(orbitCard.modelData.code, false)
+                        color: root.bar.foreground
+                        font.family: root.bar.fontFamily
+                        font.pixelSize: Style.font.title
+                      }
+
+                      Text {
+                        textFormat: Text.PlainText
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        text: root.bareTempForDay(orbitCard.modelData, "max")
+                        color: root.bar.foreground
+                        font.family: root.bar.fontFamily
+                        font.pixelSize: Style.font.bodySmall
+                        font.bold: orbitCard.selected
+                      }
+
+                      Text {
+                        textFormat: Text.PlainText
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        text: root.bareTempForDay(orbitCard.modelData, "min")
+                        color: root.dimText
+                        font.family: root.bar.fontFamily
+                        font.pixelSize: Style.font.caption
+                      }
+                    }
+                  }
+                }
+              }
+
+              MouseArea {
+                id: carouselMouse
+                anchors.fill: parent
+                z: 1000
+                hoverEnabled: true
+                acceptedButtons: Qt.LeftButton
+                cursorShape: root.carouselDragging
+                  ? Qt.ClosedHandCursor
+                  : (root.carouselHoverIndex >= 0 ? Qt.PointingHandCursor : Qt.OpenHandCursor)
+
+                onEntered: {
+                  root.carouselPointerInside = true
+                  root.updateCarouselHover(mouseX, mouseY)
+                }
+                onExited: {
+                  if (!pressed) {
+                    root.carouselPointerInside = false
+                    root.carouselHoverIndex = -1
+                  }
+                }
+                onPressed: function(mouse) {
+                  keyCatcher.forceActiveFocus()
+                  carouselSnap.stop()
+                  root.carouselSettling = false
+                  root.carouselDragging = true
+                  root.carouselLastInteractionMs = Date.now()
+                  root.carouselPressX = mouse.x
+                  root.carouselLastX = mouse.x
+                  root.carouselLastMs = Date.now()
+                  root.carouselVelocity = 0
+                  root.carouselDragDistance = 0
+                  mouse.accepted = true
+                }
+                onPositionChanged: function(mouse) {
+                  root.updateCarouselHover(mouse.x, mouse.y)
+                  if (!pressed) return
+                  var now = Date.now()
+                  var dx = mouse.x - root.carouselLastX
+                  var elapsed = Math.max(1, now - root.carouselLastMs)
+                  root.carouselAngle += dx * 0.42
+                  var instantVelocity = dx * 0.42 / elapsed
+                  root.carouselVelocity = root.carouselVelocity * 0.68 + instantVelocity * 0.32
+                  root.carouselDragDistance += Math.abs(dx)
+                  root.carouselLastX = mouse.x
+                  root.carouselLastMs = now
+                }
+                onReleased: function(mouse) {
+                  root.carouselDragging = false
+                  if (!containsMouse) root.carouselPointerInside = false
+
+                  if (root.carouselDragDistance < Style.space(7)) {
+                    var clickedIndex = root.carouselCardAt(mouse.x, mouse.y)
+                    if (clickedIndex >= 0) root.focusCarouselDay(clickedIndex)
+                    else root.focusCarouselDay(root.carouselSelectedIndex)
+                  } else {
+                    var projectedAngle = root.carouselAngle + root.carouselVelocity * 180
+                    root.settleCarousel((root.carouselFocusAngle - projectedAngle) / root.carouselStep)
+                  }
+                  root.carouselHoverIndex = containsMouse ? root.carouselCardAt(mouse.x, mouse.y) : -1
+                }
+                onCanceled: {
+                  root.carouselDragging = false
+                  root.focusCarouselDay(root.carouselSelectedIndex)
+                }
+                onWheel: function(wheel) {
+                  var delta = Math.abs(wheel.angleDelta.y) >= Math.abs(wheel.angleDelta.x)
+                    ? wheel.angleDelta.y
+                    : wheel.angleDelta.x
+                  if (delta !== 0) root.stepCarousel(delta < 0 ? 1 : -1)
+                  wheel.accepted = true
+                }
+              }
+            }
+
+            Row {
+              width: parent.width
+              spacing: Style.space(6)
+              opacity: root.carouselDetailReveal
+
+              Repeater {
+                model: root.carouselDay ? [
+                  { label: "RAIN", value: root.carouselDay.precipProb !== "" ? root.carouselDay.precipProb + "%" : "—" },
+                  { label: "UV", value: root.carouselUv ? root.carouselUv.label : "—" },
+                  { label: "SUNRISE", value: root.carouselDay.sunrise ? Model.formatClock(root.carouselDay.sunrise, root.use12Hour) : "—" },
+                  { label: "SUNSET", value: root.carouselDay.sunset ? Model.formatClock(root.carouselDay.sunset, root.use12Hour) : "—" }
+                ] : []
+
+                Rectangle {
+                  required property var modelData
+                  width: (carouselSection.width - Style.space(18)) / 4
+                  height: Style.space(46)
+                  radius: Math.min(Style.space(8), Style.cornerRadius)
+                  color: Util.alpha(root.bar.foreground, 0.045)
+                  border.width: Math.max(1, Style.space(1))
+                  border.color: Util.alpha(root.bar.foreground, 0.07)
+
+                  Column {
+                    anchors.centerIn: parent
+                    width: parent.width - Style.space(8)
+                    spacing: Style.space(1)
+
+                    Text {
+                      textFormat: Text.PlainText
+                      width: parent.width
+                      horizontalAlignment: Text.AlignHCenter
+                      text: modelData.label
+                      color: root.dimText
+                      font.family: root.bar.fontFamily
+                      font.pixelSize: Style.font.caption
+                      font.letterSpacing: root.capsLetterSpacing * 0.7
+                    }
+
+                    Text {
+                      textFormat: Text.PlainText
+                      width: parent.width
+                      horizontalAlignment: Text.AlignHCenter
+                      elide: Text.ElideRight
+                      text: modelData.value
+                      color: root.bar.foreground
+                      font.family: root.bar.fontFamily
+                      font.pixelSize: Style.font.bodySmall
+                      font.bold: true
+                    }
+                  }
+                }
+              }
+            }
+          }
+
           // ---- HOURLY ----------------------------------------------------------
           PanelSeparator {
             strength: 0.2
@@ -1642,90 +2266,6 @@ KeyboardPanel {
             }
           }
 
-          // ---- 10-DAY FORECAST --------------------------------------------
-
-          Column {
-            visible: root.mainView === "forecast" && root.showForecast && root.daily.length > 0
-            width: parent.width
-            spacing: Style.space(8)
-
-            PanelSectionHeader {
-              text: "10-DAY FORECAST"
-              foreground: root.bar.foreground
-              fontFamily: root.bar.fontFamily
-            }
-
-            RowLayout {
-              width: parent.width
-              spacing: Style.space(6)
-
-              Repeater {
-                model: root.daily
-
-                Rectangle {
-                  required property var modelData
-                  Layout.fillWidth: true
-                  Layout.minimumWidth: 0
-                  clip: true
-                  height: root.metricCellHeight + Style.space(8)
-                  radius: Math.min(4, Style.cornerRadius)
-                  color: modelData.isToday ? Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.1) : Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.05)
-
-                  Column {
-                    width: parent.width
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: Style.space(2)
-
-                    Text {
-                      textFormat: Text.PlainText
-                      width: parent.width
-                      horizontalAlignment: Text.AlignHCenter
-                      elide: Text.ElideRight
-                      text: root.dayAbbr(modelData.date).toUpperCase()
-                      color: modelData.isToday ? root.bar.foreground : root.dimText
-                      font.family: root.bar.fontFamily
-                      font.pixelSize: Style.font.caption
-                      font.bold: modelData.isToday
-                    }
-
-                    Text {
-                      textFormat: Text.PlainText
-                      width: parent.width
-                      horizontalAlignment: Text.AlignHCenter
-                      text: root.iconForOpenMeteoCode(modelData.code, false)
-                      color: root.bar.foreground
-                      font.family: root.bar.fontFamily
-                      font.pixelSize: Style.font.body
-                    }
-
-                    Text {
-                      textFormat: Text.PlainText
-                      width: parent.width
-                      horizontalAlignment: Text.AlignHCenter
-                      elide: Text.ElideRight
-                      text: root.bareTempForDay(modelData, "max")
-                      color: root.bar.foreground
-                      font.family: root.bar.fontFamily
-                      font.pixelSize: Style.font.caption
-                    }
-
-                    Text {
-                      textFormat: Text.PlainText
-                      width: parent.width
-                      horizontalAlignment: Text.AlignHCenter
-                      elide: Text.ElideRight
-                      text: root.bareTempForDay(modelData, "min")
-                      color: root.dimText
-                      font.family: root.bar.fontFamily
-                      font.pixelSize: Style.font.caption
-                    }
-                  }
-                }
-              }
-            }
-          }
-
-
         }
       }
 
@@ -1913,6 +2453,47 @@ KeyboardPanel {
                     onClicked: root.persistSetting("unit", modelData.id)
                   }
                 }
+              }
+            }
+
+            PanelSectionHeader {
+              text: "FORECAST ORBIT"
+              foreground: root.bar.foreground
+              fontFamily: root.bar.fontFamily
+            }
+
+            Item {
+              width: parent.width
+              height: Style.spacing.controlHeight
+
+              Column {
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.space(2)
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: "Auto-spin"
+                  color: root.bar.foreground
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.body
+                }
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: "Advance after 6.5 seconds idle; pauses under the pointer"
+                  color: root.dimText
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+              }
+
+              ToggleSwitch {
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                checked: root.orbitAutoSpin
+                foreground: root.bar.foreground
+                onToggled: root.persistSetting("orbitAutoSpin", !root.orbitAutoSpin)
               }
             }
 

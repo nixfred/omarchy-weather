@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "io.github.calebhat.weather",
   "name": "Detailed Weather",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": "calebhat",
   "license": "MIT",
-  "description": "Replaces the Omarchy weather pill with today's remaining-hour forecast, a ten-day outlook, city peek, and Open radar in the default browser.",
+  "description": "Detailed weather with an interactive orbital ten-day forecast, remaining-hour outlook, city peek, and Open radar in the default browser.",
   "homepage": "https://github.com/calebhat/omarchy-weather",
   "kinds": [
     "service",
@@ -17,7 +17,7 @@
   },
   "barWidget": {
     "displayName": "Detailed Weather",
-    "description": "Hourly remaining-day forecast, ten-day outlook, city peek, and Open radar in the browser.",
+    "description": "Hourly forecast, mouse-spinnable ten-day orbit, city peek, and Open radar in the browser.",
     "category": "Info",
     "allowMultiple": false,
     "defaultSection": "center",
@@ -30,6 +30,7 @@
       "showMetrics": true,
       "showSun": true,
       "showFeelsLike": true,
+      "orbitAutoSpin": true,
       "alertsEnabled": false,
       "alertRadiusKm": 100,
       "alertMinIntensity": "Heavy",
@@ -91,6 +92,13 @@
         "type": "boolean",
         "label": "Show feels-like",
         "defaultValue": true
+      },
+      {
+        "key": "orbitAutoSpin",
+        "type": "boolean",
+        "label": "Auto-spin forecast orbit",
+        "defaultValue": true,
+        "description": "Advance the orbital day carousel after 6.5 seconds without interaction. Pauses while the pointer is over it."
       },
       {
         "key": "alertsEnabled",

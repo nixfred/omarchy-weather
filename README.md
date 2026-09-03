@@ -1,7 +1,8 @@
 # Detailed Weather
 
 A single Omarchy bar pill that **replaces** the built-in `omarchy.weather`
-widget. Click it for today's remaining-hour forecast and a ten-day outlook.
+widget. Click it for today's remaining-hour forecast and a mouse-spinnable
+ten-day weather orbit.
 **Open radar** launches a saved radar website in your default browser.
 
 Named to sit next to stock Weather, Weathering, and Weather Radar without
@@ -53,7 +54,12 @@ chance. Below that:
 - **Metrics** — wind (speed and direction), humidity, pressure, UV, air
   quality (US AQI, PM2.5 / PM10), sunrise and sunset. Each block can be
   hidden in settings.
-- **Ten-day** — today plus the next nine days, high / low and condition.
+- **Forecast orbit** — today plus the next nine days circle a live detail
+  hub. Drag or flick with the mouse, scroll the wheel, click any day, or use
+  Left/Right (also `h`/`l`) to spin it. Depth, tilt, opacity, momentum, and a
+  spring snap make the ring feel physical. The center and four detail cells
+  update with condition, high/low, precipitation, UV, sunrise, and sunset.
+  It advances after 6.5 seconds idle by default and pauses under the pointer.
 
 Units follow `auto` (locale and country), `metric`, or `imperial`.
 
@@ -133,6 +139,7 @@ the bar settings form). `shell.json` hot-reloads on save.
 | `showSun` | `true` | Sunrise / sunset cell |
 | `showAirQuality` | `true` | US AQI cell |
 | `showFeelsLike` | `true` | Feels-like in the header |
+| `orbitAutoSpin` | `true` | Advance the day orbit after 6.5 seconds idle |
 | `alertsEnabled` | `false` | Storm alerts for home |
 | `alertRadiusKm` | `100` | How far around home to sample |
 | `alertMinIntensity` | `Heavy` | `Light` / `Moderate` / `Heavy` / `Severe` |
