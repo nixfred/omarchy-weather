@@ -370,16 +370,41 @@ Panel {
   //      rate, and whether the sun is up. Any other day falls back to what the
   //      forecast code implies, because Open-Meteo's daily block carries no
   //      cloud-cover or wind series.
+  // ---- SKY PREVIEW. Atlanta is not going to snow on demand, and a state you
+  //      cannot see is a state you cannot claim works. Forcing a condition
+  //      through IPC makes every branch reachable:
+  //        qs ipc call io.github.calebhat.weather sky rain
+  //      Modes: clear, night, cloudy, rain, snow, storm, off (back to live).
+  property string skyPreview: ""
+
+  readonly property bool skyPreviewOn: root.skyPreview !== ""
+
+  function skyPreviewValue(key) {
+    var m = root.skyPreview
+    var table = {
+      "clear":  { density: 0.04, precip: 0,    storm: false, snow: false, night: false, wind: 5,  sun: 0.38 },
+      "night":  { density: 0.04, precip: 0,    storm: false, snow: false, night: true,  wind: 4,  sun: -1 },
+      "cloudy": { density: 0.88, precip: 0,    storm: false, snow: false, night: false, wind: 11, sun: 0.38 },
+      "rain":   { density: 0.96, precip: 0.75, storm: false, snow: false, night: false, wind: 15, sun: -1 },
+      "snow":   { density: 0.90, precip: 0.70, storm: false, snow: true,  night: false, wind: 8,  sun: -1 },
+      "storm":  { density: 1.00, precip: 0.95, storm: true,  snow: false, night: false, wind: 28, sun: -1 }
+    }
+    var row = table[m]
+    return row ? row[key] : null
+  }
+
   readonly property bool skyIsLive: root.carouselDay !== null && root.carouselDay !== undefined
     && root.carouselDay.isToday === true && root.openMeteoCurrent !== null
 
   readonly property real skyCloudCover: {
+    if (skyPreviewOn) return skyPreviewValue("density")
     if (skyIsLive && isFinite(Number(root.openMeteoCurrent.cloudCover)))
       return Math.max(0, Math.min(1, Number(root.openMeteoCurrent.cloudCover) / 100))
     return root.carouselDay ? root.cloudinessForCode(root.carouselDay.code) : 0.55
   }
 
   readonly property real skyPrecip: {
+    if (skyPreviewOn) return skyPreviewValue("precip")
     if (skyIsLive && isFinite(Number(root.openMeteoCurrent.precipitation))) {
       // mm/h. 2.5 mm/h is already properly raining, so that saturates.
       var mm = Number(root.openMeteoCurrent.precipitation)
@@ -391,13 +416,39 @@ Panel {
     return root.carouselDay ? root.precipForCode(root.carouselDay.code) : 0
   }
 
-  readonly property real skyWindSpeed: skyIsLive && isFinite(Number(root.openMeteoCurrent.windspeedMiles))
-    ? Number(root.openMeteoCurrent.windspeedMiles)
-    : 6
+  readonly property bool skyStorm: skyPreviewOn ? skyPreviewValue("storm") : root.carouselStorm
+  readonly property bool skySnow: skyPreviewOn
+    ? skyPreviewValue("snow")
+    : (root.carouselDay ? root.isSnowCode(root.carouselDay.code) : false)
+
+  // Where the sun is on its arc for the day on show: 0 at sunrise, 1 at
+  // sunset, -1 once it is down. Uses the day's own sunrise/sunset, so a
+  // morning panel puts the sun low on the left and noon puts it overhead.
+  readonly property real skySunProgress: {
+    if (skyPreviewOn) return skyPreviewValue("sun")
+    if (skyIsNight) return -1
+    if (!root.carouselDay || !root.carouselDay.sunrise || !root.carouselDay.sunset) return 0.5
+    var rise = new Date(root.carouselDay.sunrise).getTime()
+    var set = new Date(root.carouselDay.sunset).getTime()
+    if (!isFinite(rise) || !isFinite(set) || set <= rise) return 0.5
+    // Any day but today has no "now" to speak of, so show it at mid-morning
+    // rather than pinning an unrelated clock onto it.
+    if (!root.carouselDay.isToday) return 0.42
+    var p = (Date.now() - rise) / (set - rise)
+    return (p < 0 || p > 1) ? -1 : p
+  }
+
+  readonly property real skyWindSpeed: skyPreviewOn
+    ? skyPreviewValue("wind")
+    : (skyIsLive && isFinite(Number(root.openMeteoCurrent.windspeedMiles))
+      ? Number(root.openMeteoCurrent.windspeedMiles)
+      : 6)
 
   readonly property real skyWindFromDeg: skyIsLive ? root.windDeg : -1
 
-  readonly property bool skyIsNight: root.openMeteoCurrent
+  readonly property bool skyIsNight: skyPreviewOn
+    ? skyPreviewValue("night")
+    : root.openMeteoCurrent
     && root.openMeteoCurrent.isDay !== undefined
     && Number(root.openMeteoCurrent.isDay) === 0
 
@@ -1342,6 +1393,16 @@ Panel {
     function edit(): void { root.openFromHotkey(); root.startEditingLocation() }
     function settings(): void { root.mainView = "settings" }
     function forecast(): void { root.mainView = "forecast" }
+    // Fire a lightning strike now, rather than waiting out the random timer.
+    function strike(): void { skyDeck.triggerStrike() }
+    // Force a sky state for a look: clear, night, cloudy, rain, snow, storm.
+    // Anything else (or "off") hands the deck back to the live observation.
+    function sky(mode: string): void {
+      var m = String(mode || "").toLowerCase()
+      var known = ["clear", "night", "cloudy", "rain", "snow", "storm"]
+      root.skyPreview = known.indexOf(m) >= 0 ? m : ""
+      root.openFromHotkey()
+    }
   }
 
 KeyboardPanel {
@@ -1943,18 +2004,20 @@ KeyboardPanel {
                 z: -6
                 clip: true
 
-                CloudDrift {
+                SkyDeck {
+                  id: skyDeck
                   anchors.fill: parent
                   anchors.margins: -Style.space(10)
                   active: root.opened && root.mainView === "forecast"
-                  storm: root.carouselStorm
+                  storm: root.skyStorm
                   phase: root.weatherAmbientPhase
                   density: root.skyCloudCover
                   windSpeed: root.skyWindSpeed
                   windFromDeg: root.skyWindFromDeg
                   precip: root.skyPrecip
-                  snow: root.carouselDay ? root.isSnowCode(root.carouselDay.code) : false
+                  snow: root.skySnow
                   night: root.skyIsNight
+                  sunProgress: root.skySunProgress
                   accentColor: root.weatherAccent
                   urgentColor: Color.urgent
                 }
