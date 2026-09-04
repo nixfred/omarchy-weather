@@ -344,6 +344,80 @@ Panel {
     return isFinite(value) && value >= 95
   }
 
+  function isSnowCode(code) {
+    var v = Number(code)
+    if (!isFinite(v)) return false
+    return (v >= 71 && v <= 77) || v === 85 || v === 86
+  }
+
+  // Fallback precipitation intensity, 0..1, for a day we have no observation
+  // for. Used for every orbit position except today.
+  function precipForCode(code) {
+    var v = Number(code)
+    if (!isFinite(v)) return 0
+    if (v >= 95) return 0.90                 // thunderstorm
+    if (v >= 85) return 0.70                 // snow showers
+    if (v >= 80) return 0.72                 // rain showers
+    if (v >= 71) return 0.55                 // snow
+    if (v >= 61) return 0.60                 // rain
+    if (v >= 51) return 0.30                 // drizzle
+    return 0
+  }
+
+  // ---- LIVE SKY. When the orbit is parked on today, the cloud deck stops
+  //      guessing from the weather code and renders the actual observation:
+  //      measured cloud cover, real wind speed and bearing, real precipitation
+  //      rate, and whether the sun is up. Any other day falls back to what the
+  //      forecast code implies, because Open-Meteo's daily block carries no
+  //      cloud-cover or wind series.
+  readonly property bool skyIsLive: root.carouselDay !== null && root.carouselDay !== undefined
+    && root.carouselDay.isToday === true && root.openMeteoCurrent !== null
+
+  readonly property real skyCloudCover: {
+    if (skyIsLive && isFinite(Number(root.openMeteoCurrent.cloudCover)))
+      return Math.max(0, Math.min(1, Number(root.openMeteoCurrent.cloudCover) / 100))
+    return root.carouselDay ? root.cloudinessForCode(root.carouselDay.code) : 0.55
+  }
+
+  readonly property real skyPrecip: {
+    if (skyIsLive && isFinite(Number(root.openMeteoCurrent.precipitation))) {
+      // mm/h. 2.5 mm/h is already properly raining, so that saturates.
+      var mm = Number(root.openMeteoCurrent.precipitation)
+      if (mm > 0) return Math.max(0.12, Math.min(1, mm / 2.5))
+      // Measured zero means zero. The daily code can say SHOWERS while the
+      // sky outside the window is dry, and the deck answers to the window.
+      return 0
+    }
+    return root.carouselDay ? root.precipForCode(root.carouselDay.code) : 0
+  }
+
+  readonly property real skyWindSpeed: skyIsLive && isFinite(Number(root.openMeteoCurrent.windspeedMiles))
+    ? Number(root.openMeteoCurrent.windspeedMiles)
+    : 6
+
+  readonly property real skyWindFromDeg: skyIsLive ? root.windDeg : -1
+
+  readonly property bool skyIsNight: root.openMeteoCurrent
+    && root.openMeteoCurrent.isDay !== undefined
+    && Number(root.openMeteoCurrent.isDay) === 0
+
+  // How thick the drifting cloud deck behind the orbit should be for a given
+  // WMO code. Clear days keep a couple of wisps so the layer never pops in or
+  // out; anything precipitating fills the stage.
+  function cloudinessForCode(code) {
+    var value = Number(code)
+    if (!isFinite(value)) return 0.55
+    if (value >= 95) return 1.0          // thunderstorm
+    if (value >= 80) return 0.98         // showers
+    if (value >= 71) return 0.90         // snow
+    if (value >= 51) return 0.94         // drizzle and rain
+    if (value >= 45) return 0.88         // fog
+    if (value >= 3) return 0.92          // overcast
+    if (value >= 2) return 0.66          // partly cloudy
+    if (value >= 1) return 0.40          // mainly clear
+    return 0.20                          // clear
+  }
+
   function syncAnimatedTemperature() {
     if (root.reportTempNum === "") return
     var next = Number(root.reportTempNum)
@@ -750,7 +824,7 @@ Panel {
     var url = "https://api.open-meteo.com/v1/forecast"
       + "?latitude=" + encodeURIComponent(String(lat))
       + "&longitude=" + encodeURIComponent(String(lon))
-      + "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,wind_direction_10m,surface_pressure,weather_code,is_day"
+      + "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,wind_direction_10m,surface_pressure,weather_code,is_day,cloud_cover,precipitation"
       + "&hourly=temperature_2m,precipitation_probability,weather_code,is_day"
       + "&minutely_15=precipitation,precipitation_probability"
       + "&forecast_minutely_15=16"
@@ -1860,6 +1934,30 @@ KeyboardPanel {
                 height: width
                 radius: width / 2
                 color: Util.alpha(root.weatherAccent, 0.024)
+              }
+
+              // Drifting cloud deck. Clipped to the stage so banks slide off
+              // the edge instead of bleeding into the metric rows below.
+              Item {
+                anchors.fill: parent
+                z: -6
+                clip: true
+
+                CloudDrift {
+                  anchors.fill: parent
+                  anchors.margins: -Style.space(10)
+                  active: root.opened && root.mainView === "forecast"
+                  storm: root.carouselStorm
+                  phase: root.weatherAmbientPhase
+                  density: root.skyCloudCover
+                  windSpeed: root.skyWindSpeed
+                  windFromDeg: root.skyWindFromDeg
+                  precip: root.skyPrecip
+                  snow: root.carouselDay ? root.isSnowCode(root.carouselDay.code) : false
+                  night: root.skyIsNight
+                  accentColor: root.weatherAccent
+                  urgentColor: Color.urgent
+                }
               }
 
               Text {
