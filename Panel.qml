@@ -1906,9 +1906,9 @@ KeyboardPanel {
               Rectangle {
                 anchors.centerIn: parent
                 z: 115
-                width: Style.space(224)
-                height: Style.space(132)
-                radius: Math.min(Style.space(25), Style.cornerRadius * 2.2)
+                width: Style.space(258)
+                height: Style.space(150)
+                radius: width / 2
                 color: "transparent"
                 border.width: Math.max(1, Style.space(2))
                 border.color: Color.urgent
@@ -1925,24 +1925,18 @@ KeyboardPanel {
 
               Rectangle {
                 anchors.centerIn: parent
+                // No card, no chrome: the hero reads as light on the orbit,
+                // not as a panel stacked on top of one. Selection and mood are
+                // carried entirely by type weight, accent color, and the
+                // energy core breathing behind it.
                 z: 120
-                width: Style.space(214)
-                height: Style.space(122)
-                radius: Math.min(Style.space(22), Style.cornerRadius * 2)
-                color: Util.alpha(root.weatherAccent, 0.075)
-                border.width: Math.max(1, Style.space(1))
-                border.color: Util.alpha(root.carouselStorm ? Color.urgent : root.weatherAccent, 0.62)
+                width: Style.space(240)
+                height: Style.space(126)
+                radius: 0
+                color: "transparent"
+                border.width: 0
                 opacity: root.carouselDetailReveal
                 scale: 0.94 + root.carouselDetailReveal * 0.06
-
-                Rectangle {
-                  anchors.fill: parent
-                  anchors.margins: Style.space(5)
-                  radius: Math.max(1, parent.radius - Style.space(5))
-                  color: "transparent"
-                  border.width: Math.max(1, Style.space(1))
-                  border.color: Util.alpha(root.bar.foreground, 0.07)
-                }
 
                 Column {
                   anchors.centerIn: parent
@@ -1964,6 +1958,18 @@ KeyboardPanel {
                     font.letterSpacing: root.capsLetterSpacing
                   }
 
+                  Item { width: 1; height: Style.space(4) }
+
+                  Rectangle {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: Style.space(44)
+                    height: Math.max(1, Style.space(1))
+                    radius: height / 2
+                    color: Util.alpha(root.carouselStorm ? Color.urgent : root.weatherAccent, 0.55)
+                  }
+
+                  Item { width: 1; height: Style.space(6) }
+
                   Row {
                     anchors.horizontalCenter: parent.horizontalCenter
                     spacing: Style.space(10)
@@ -1974,7 +1980,7 @@ KeyboardPanel {
                       text: root.carouselDay ? root.iconForOpenMeteoCode(root.carouselDay.code, false) : ""
                       color: root.carouselStorm ? Color.urgent : root.weatherAccent
                       font.family: root.bar.fontFamily
-                      font.pixelSize: Style.font.display
+                      font.pixelSize: Style.font.title
                     }
 
                     Column {
@@ -1988,16 +1994,17 @@ KeyboardPanel {
                           : ""
                         color: root.bar.foreground
                         font.family: root.bar.fontFamily
-                        font.pixelSize: Style.font.title
+                        font.pixelSize: Style.font.display
                         font.bold: true
                       }
 
                       Text {
                         textFormat: Text.PlainText
-                        text: root.carouselDay ? Model.conditionLabel(root.carouselDay.code) : ""
+                        text: root.carouselDay ? Model.conditionLabel(root.carouselDay.code).toUpperCase() : ""
                         color: root.dimText
                         font.family: root.bar.fontFamily
-                        font.pixelSize: Style.font.bodySmall
+                        font.pixelSize: Style.font.caption
+                        font.letterSpacing: root.capsLetterSpacing * 0.8
                       }
                     }
                   }
@@ -2083,9 +2090,8 @@ KeyboardPanel {
                     radius: Math.min(Style.space(14), Style.cornerRadius * 1.5)
                     color: "transparent"
                     border.width: Math.max(1, Style.space(1))
-                    border.color: Util.alpha(orbitCard.storm ? Color.urgent : orbitCard.dayAccent,
-                      orbitCard.selected ? 0.64 : (orbitCard.storm ? 0.28 : 0))
-                    opacity: orbitCard.selected || orbitCard.storm ? 1 : 0
+                    border.color: Util.alpha(Color.urgent, orbitCard.storm ? 0.26 : 0)
+                    opacity: orbitCard.storm ? 1 : 0
 
                     SequentialAnimation on scale {
                       running: orbitCard.selected && root.opened && !root.carouselDragging
@@ -2098,17 +2104,12 @@ KeyboardPanel {
                   Rectangle {
                     anchors.fill: parent
                     radius: Math.min(Style.space(10), Style.cornerRadius)
-                    color: orbitCard.selected
-                      ? Util.alpha(orbitCard.dayAccent, 0.26)
-                      : (orbitCard.storm
-                        ? Util.alpha(Color.urgent, orbitCard.hovered ? 0.16 : 0.10)
-                        : (orbitCard.hovered ? Util.alpha(root.bar.foreground, 0.10) : Util.alpha(root.bar.foreground, 0.055)))
-                    border.width: Math.max(1, Style.space(1))
-                    border.color: orbitCard.selected
-                      ? Util.alpha(orbitCard.storm ? Color.urgent : orbitCard.dayAccent, 0.94)
-                      : (orbitCard.storm
-                        ? Util.alpha(Color.urgent, 0.55)
-                        : Util.alpha(root.bar.foreground, orbitCard.hovered ? 0.22 : 0.09))
+                    // Days float free. Depth already encodes distance via
+                    // scale and opacity, so a tile border only adds noise.
+                    color: orbitCard.hovered && !orbitCard.selected
+                      ? Util.alpha(root.bar.foreground, 0.07)
+                      : "transparent"
+                    border.width: 0
 
                     Behavior on color { ColorAnimation { duration: 150 } }
                     Behavior on border.color { ColorAnimation { duration: 150 } }
@@ -2160,6 +2161,18 @@ KeyboardPanel {
                         font.pixelSize: Style.font.caption
                       }
                     }
+                  }
+
+                  Rectangle {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.top: parent.bottom
+                    anchors.topMargin: Style.space(4)
+                    width: parent.width * 0.52
+                    height: Math.max(1, Style.space(2))
+                    radius: height / 2
+                    color: Util.alpha(orbitCard.storm ? Color.urgent : orbitCard.dayAccent, 0.92)
+                    opacity: orbitCard.selected ? 1 : 0
+                    Behavior on opacity { NumberAnimation { duration: 160 } }
                   }
                 }
               }

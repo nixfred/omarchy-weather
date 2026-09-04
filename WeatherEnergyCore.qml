@@ -56,10 +56,11 @@ Item {
       ctx.arc(cx, cy, radius * (1.05 + breath * 0.08), 0, Math.PI * 2)
       ctx.fill()
 
-      // Three rings breathe out of phase, so the hub feels energized without
-      // all of its layers expanding and contracting in lockstep.
-      var ringScales = [0.54 + breath * 0.035, 0.73 + counterBreath * 0.042, 0.94 + breath * 0.055]
-      var ringAlpha = root.storm ? [0.34, 0.24, 0.16] : [0.25, 0.16, 0.10]
+      // Two outer rings breathe out of phase. The old inner ring was dropped
+      // because it cut straight through the hero temperature now that the
+      // detail card has no background of its own to sit on.
+      var ringScales = [0.79 + counterBreath * 0.042, 0.99 + breath * 0.055]
+      var ringAlpha = root.storm ? [0.22, 0.15] : [0.15, 0.09]
       for (var i = 0; i < ringScales.length; i++) {
         ctx.beginPath()
         ctx.arc(cx, cy, radius * ringScales[i], 0, Math.PI * 2)
@@ -72,16 +73,11 @@ Item {
       // orbit itself is resting.
       ctx.lineCap = "round"
       ctx.beginPath()
-      ctx.arc(cx, cy, radius * 0.81, root.phase, root.phase + Math.PI * 1.12)
-      ctx.strokeStyle = alpha(root.liveColor, root.storm ? 0.62 : 0.42)
+      ctx.arc(cx, cy, radius * 1.06, root.phase, root.phase + Math.PI * 1.12)
+      ctx.strokeStyle = alpha(root.liveColor, root.storm ? 0.55 : 0.36)
       ctx.lineWidth = 2.2
       ctx.stroke()
 
-      ctx.beginPath()
-      ctx.arc(cx, cy, radius * 0.63, -root.phase * 0.78, -root.phase * 0.78 + Math.PI * 0.86)
-      ctx.strokeStyle = alpha(root.liveColor, root.storm ? 0.48 : 0.30)
-      ctx.lineWidth = 1.6
-      ctx.stroke()
       ctx.restore()
     }
 
